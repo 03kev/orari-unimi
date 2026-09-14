@@ -40,18 +40,39 @@ type VisualizzatoreCalendario interface {
 // CalendarioTerminale adatta automaticamente il calendario alle dimensioni
 // correnti della finestra del terminale.
 type CalendarioTerminale struct {
-	uscita io.Writer
-	ora    func() time.Time
+	uscita              io.Writer
+	ora                 func() time.Time
+	percorsoPreferenze  string
+	mostraFineSettimana bool
 }
 
-func NuovoCalendarioTerminale(uscita io.Writer) (*CalendarioTerminale, error) {
+func NuovoCalendarioTerminale(uscita io.Writer, percorsoPreferenze string) (*CalendarioTerminale, error) {
 	if uscita == nil {
 		return nil, errors.New("l'output del calendario non può essere nil")
 	}
-	return &CalendarioTerminale{uscita: uscita, ora: time.Now}, nil
+	if percorsoPreferenze == "" {
+		return nil, errors.New("il percorso delle preferenze è obbligatorio")
+	}
+	preferenze, err := caricaPreferenzeCalendario(percorsoPreferenze)
+	if err != nil {
+		return nil, err
+	}
+	return &CalendarioTerminale{
+		uscita: uscita, ora: time.Now, percorsoPreferenze: percorsoPreferenze,
+		mostraFineSettimana: preferenze.MostraFineSettimana,
+	}, nil
 }
 
-// Mostra gestisce A (settimana precedente), D (successiva) e Q (ritorno).
+func (c *CalendarioTerminale) alternaFineSettimana() error {
+	preferenze := preferenzeCalendario{MostraFineSettimana: !c.mostraFineSettimana}
+	if err := salvaPreferenzeCalendario(c.percorsoPreferenze, preferenze); err != nil {
+		return err
+	}
+	c.mostraFineSettimana = preferenze.MostraFineSettimana
+	return nil
+}
+
+// Mostra gestisce A/D (navigazione), W (fine settimana) e Q (ritorno).
 func (c *CalendarioTerminale) Mostra(titolo string, lezioni []unimi.Lezione) error {
 	lezioni = ordinaEDeduplica(lezioni)
 	if len(lezioni) == 0 {
@@ -64,7 +85,7 @@ func (c *CalendarioTerminale) Mostra(titolo string, lezioni []unimi.Lezione) err
 			larghezza, altezza = larghezzaFallback, altezzaFallback
 		}
 		fmt.Fprint(c.uscita, "\x1b[2J\x1b[H")
-		fmt.Fprint(c.uscita, renderCalendario(titolo, lezioni, settimana, larghezza, altezza))
+		fmt.Fprint(c.uscita, renderCalendario(titolo, lezioni, settimana, larghezza, altezza, c.mostraFineSettimana))
 
 		carattere, tasto, err := keyboard.GetKey()
 		if err != nil {
@@ -75,6 +96,10 @@ func (c *CalendarioTerminale) Mostra(titolo string, lezioni []unimi.Lezione) err
 			settimana = settimana.AddDate(0, 0, -7)
 		case tasto == keyboard.KeyArrowRight || carattere == 'd' || carattere == 'D':
 			settimana = settimana.AddDate(0, 0, 7)
+		case carattere == 'w' || carattere == 'W':
+			if err := c.alternaFineSettimana(); err != nil {
+				return err
+			}
 		case tasto == keyboard.KeyEsc || carattere == 'q' || carattere == 'Q':
 			fmt.Fprint(c.uscita, "\x1b[2J\x1b[H")
 			return nil
@@ -82,7 +107,7 @@ func (c *CalendarioTerminale) Mostra(titolo string, lezioni []unimi.Lezione) err
 	}
 }
 
-func renderCalendario(titolo string, lezioni []unimi.Lezione, settimana time.Time, larghezza, altezza int) string {
+func renderCalendario(titolo string, lezioni []unimi.Lezione, settimana time.Time, larghezza, altezza int, mostraFineSettimana bool) string {
 	if larghezza < 30 {
 		larghezza = 30
 	}
@@ -91,27 +116,39 @@ func renderCalendario(titolo string, lezioni []unimi.Lezione, settimana time.Tim
 	}
 	settimana = inizioSettimana(settimana)
 	giorni := raggruppaSettimana(lezioni, settimana)
-	intestazione := fmt.Sprintf("%s | %s - %s", titolo, settimana.Format("02/01/2006"), settimana.AddDate(0, 0, 6).Format("02/01/2006"))
-	comandi := "A/← precedente   D/→ successiva   Q/Esc menu"
+	numeroGiorni := 5
+	statoFineSettimana := "no"
+	if mostraFineSettimana {
+		numeroGiorni = 7
+		statoFineSettimana = "sì"
+	}
+	intestazione := fmt.Sprintf("%s | %s - %s", titolo, settimana.Format("02/01/2006"), settimana.AddDate(0, 0, numeroGiorni-1).Format("02/01/2006"))
+	comandi := fmt.Sprintf("A/← precedente   D/→ successiva   W weekend: %s   Q/Esc menu", statoFineSettimana)
+	if larghezza < 70 {
+		comandi = fmt.Sprintf("A/← prec. D/→ succ. W weekend: %s Q/Esc", statoFineSettimana)
+	}
+	if larghezza < 50 {
+		comandi = fmt.Sprintf("A/← D/→ W:%s Q/Esc", statoFineSettimana)
+	}
 
 	var corpo string
 	if larghezza >= larghezzaMinimaGriglia && altezza >= 12 {
-		corpo = renderGriglia(giorni, settimana, larghezza, altezza-2)
+		corpo = renderGriglia(giorni, settimana, larghezza, altezza-2, numeroGiorni)
 	} else {
-		corpo = renderAgendaCompatta(giorni, settimana, larghezza, altezza-2)
+		corpo = renderAgendaCompatta(giorni, settimana, larghezza, altezza-2, numeroGiorni)
 	}
 	return tronca(intestazione, larghezza) + "\n" + corpo + tronca(comandi, larghezza) + "\n"
 }
 
-func renderGriglia(giorni [7][]unimi.Lezione, settimana time.Time, larghezza, altezza int) string {
-	larghezzaColonna := (larghezza - 8) / 7
-	rigaOrizzontale := "+" + strings.Repeat(strings.Repeat("-", larghezzaColonna)+"+", 7)
+func renderGriglia(giorni [7][]unimi.Lezione, settimana time.Time, larghezza, altezza, numeroGiorni int) string {
+	larghezzaColonna := (larghezza - numeroGiorni - 1) / numeroGiorni
+	rigaOrizzontale := "+" + strings.Repeat(strings.Repeat("-", larghezzaColonna)+"+", numeroGiorni)
 
 	var risultato strings.Builder
 	risultato.WriteString(rigaOrizzontale)
 	risultato.WriteByte('\n')
 	risultato.WriteByte('|')
-	for giorno := 0; giorno < 7; giorno++ {
+	for giorno := 0; giorno < numeroGiorni; giorno++ {
 		data := settimana.AddDate(0, 0, giorno)
 		intestazione := fmt.Sprintf("%s %s", nomiGiorni[giorno], data.Format("02/01"))
 		risultato.WriteString(centra(intestazione, larghezzaColonna))
@@ -125,9 +162,9 @@ func renderGriglia(giorni [7][]unimi.Lezione, settimana time.Time, larghezza, al
 	if righeDisponibili < 2 {
 		righeDisponibili = 2
 	}
-	righeGiorni := make([][]rigaCella, 7)
+	righeGiorni := make([][]rigaCella, numeroGiorni)
 	massimoRighe := 1
-	for giorno := 0; giorno < 7; giorno++ {
+	for giorno := 0; giorno < numeroGiorni; giorno++ {
 		righeGiorni[giorno] = righeCella(giorni[giorno], larghezzaColonna, righeDisponibili)
 		if len(righeGiorni[giorno]) > massimoRighe {
 			massimoRighe = len(righeGiorni[giorno])
@@ -135,7 +172,7 @@ func renderGriglia(giorni [7][]unimi.Lezione, settimana time.Time, larghezza, al
 	}
 	for riga := 0; riga < massimoRighe; riga++ {
 		risultato.WriteByte('|')
-		for giorno := 0; giorno < 7; giorno++ {
+		for giorno := 0; giorno < numeroGiorni; giorno++ {
 			contenuto := rigaCella{}
 			if riga < len(righeGiorni[giorno]) {
 				contenuto = righeGiorni[giorno][riga]
@@ -264,13 +301,13 @@ func colora(testo string, colore int) string {
 	return fmt.Sprintf("\x1b[38;5;%dm%s\x1b[0m", colore, testo)
 }
 
-func renderAgendaCompatta(giorni [7][]unimi.Lezione, settimana time.Time, larghezza, altezza int) string {
-	righePerGiorno := altezza / 7
+func renderAgendaCompatta(giorni [7][]unimi.Lezione, settimana time.Time, larghezza, altezza, numeroGiorni int) string {
+	righePerGiorno := altezza / numeroGiorni
 	if righePerGiorno < 1 {
 		righePerGiorno = 1
 	}
 	var risultato strings.Builder
-	for giorno := 0; giorno < 7; giorno++ {
+	for giorno := 0; giorno < numeroGiorni; giorno++ {
 		data := settimana.AddDate(0, 0, giorno)
 		prefisso := fmt.Sprintf("%s %s | ", nomiGiorni[giorno], data.Format("02/01"))
 		lezioni := giorni[giorno]
