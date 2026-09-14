@@ -2,6 +2,9 @@
 
 Applicazione Go per consultare da terminale gli orari delle lezioni UNIMI.
 
+È disponibile anche un'app Android con interfaccia touch: vedi
+[android/README.md](android/README.md) per funzionalità, compilazione e installazione.
+
 ## Avvio
 
 ```sh

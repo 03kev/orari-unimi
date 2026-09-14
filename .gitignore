@@ -31,4 +31,11 @@ go.work.sum
 # .idea/
 # .vscode/
 
-codex.md 
+codex.md
+
+# Android build output and local SDK configuration
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/dist/
