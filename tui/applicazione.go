@@ -76,6 +76,10 @@ func (a *Applicazione) Esegui(ctx context.Context) error {
 			return err
 		}
 		switch scelta {
+		case -1:
+			a.pulisciSchermo()
+			fmt.Fprintln(a.uscita, "A presto!")
+			return nil
 		case 0:
 			a.menuPerCorso(ctx)
 		case 1:
@@ -168,6 +172,8 @@ func (a *Applicazione) menuMieiOrari(ctx context.Context) error {
 			return err
 		}
 		switch scelta {
+		case -1:
+			return nil
 		case 0:
 			if err := a.mostraOrariSalvati(ctx); err != nil {
 				return err
@@ -261,7 +267,7 @@ func (a *Applicazione) selezionaConRicerca(titolo string, voci []voceRicerca) (v
 		if err != nil {
 			return voceRicerca{}, false, err
 		}
-		if scelta == len(risultati)+1 {
+		if scelta == -1 || scelta == len(risultati)+1 {
 			return voceRicerca{}, false, nil
 		}
 		if scelta == len(risultati) {
@@ -330,7 +336,7 @@ func (a *Applicazione) rimuoviInsegnamento() error {
 	if err != nil {
 		return err
 	}
-	if scelta == len(insegnamenti) {
+	if scelta == -1 || scelta == len(insegnamenti) {
 		return nil
 	}
 	if err := a.archivio.Rimuovi(scelta); err != nil {

@@ -8,18 +8,23 @@ Applicazione Go per consultare da terminale gli orari delle lezioni UNIMI.
 go run ./cmd/orari-unimi
 ```
 
-I menu e le scelte interattive usano
-[ManuCli](https://github.com/manuelefetto/ManuCli): usa le frecce verticali per
-spostarti e `Invio` per confermare. È possibile cercare corsi, docenti e singoli
-insegnamenti attraverso suggerimenti ottenuti dal portale UNIMI, oltre a gestire
-gli insegnamenti salvati nella sezione "I miei orari". In questa sezione si
-possono aggiungere e rimuovere singoli insegnamenti, poi visualizzarli insieme
+Nei menu usa `j`/`k` (o le frecce verticali) per spostarti, `l` (o `Invio`)
+per scegliere e `h` (o `Esc`) per tornare indietro. È possibile cercare corsi,
+docenti e singoli insegnamenti attraverso suggerimenti ottenuti dal portale
+UNIMI, oltre a gestire gli insegnamenti salvati nella sezione "I miei orari".
+In questa sezione si possono aggiungere e rimuovere singoli insegnamenti, poi visualizzarli insieme
 nel calendario personale.
 La ricerca non distingue tra maiuscole, minuscole e vocali accentate.
 
+Premi `V` in un menu o nel calendario per attivare o disattivare le scorciatoie
+Vim. La scelta è inizialmente attiva e viene salvata in `preferenze.json`
+insieme a quella per il weekend. Se disattivate, restano disponibili frecce,
+`Invio` ed `Esc`. Nei campi di ricerca `h`, `j`, `k`, `l` e `v` restano normali
+caratteri.
+
 La selezione di un corso, docente o insegnamento recupera gli orari effettivi
-pubblicati da UNIMI e li mostra in un calendario settimanale. Premi `A` o la
-freccia sinistra per la settimana precedente, `D` o la freccia destra per la
+pubblicati da UNIMI e li mostra in un calendario settimanale. Premi `h` (`A` o
+freccia sinistra) per la settimana precedente, `l` (`D` o freccia destra) per la
 successiva, `W` per mostrare o nascondere sabato e domenica e `Q` o `Esc` per
 tornare al menu. Il fine settimana è nascosto inizialmente; la scelta viene
 ricordata alle aperture successive. Il calendario si adatta alla

@@ -44,6 +44,7 @@ type CalendarioTerminale struct {
 	ora                 func() time.Time
 	percorsoPreferenze  string
 	mostraFineSettimana bool
+	navigazioneVim      bool
 }
 
 func NuovoCalendarioTerminale(uscita io.Writer, percorsoPreferenze string) (*CalendarioTerminale, error) {
@@ -53,31 +54,51 @@ func NuovoCalendarioTerminale(uscita io.Writer, percorsoPreferenze string) (*Cal
 	if percorsoPreferenze == "" {
 		return nil, errors.New("il percorso delle preferenze è obbligatorio")
 	}
-	preferenze, err := caricaPreferenzeCalendario(percorsoPreferenze)
+	preferenze, err := caricaPreferenze(percorsoPreferenze)
 	if err != nil {
 		return nil, err
 	}
 	return &CalendarioTerminale{
 		uscita: uscita, ora: time.Now, percorsoPreferenze: percorsoPreferenze,
 		mostraFineSettimana: preferenze.MostraFineSettimana,
+		navigazioneVim:      preferenze.navigazioneVimAttiva(),
 	}, nil
 }
 
 func (c *CalendarioTerminale) alternaFineSettimana() error {
-	preferenze := preferenzeCalendario{MostraFineSettimana: !c.mostraFineSettimana}
-	if err := salvaPreferenzeCalendario(c.percorsoPreferenze, preferenze); err != nil {
+	preferenze, err := caricaPreferenze(c.percorsoPreferenze)
+	if err != nil {
+		return err
+	}
+	preferenze.MostraFineSettimana = !c.mostraFineSettimana
+	if err := salvaPreferenze(c.percorsoPreferenze, preferenze); err != nil {
 		return err
 	}
 	c.mostraFineSettimana = preferenze.MostraFineSettimana
 	return nil
 }
 
-// Mostra gestisce A/D (navigazione), W (fine settimana) e Q (ritorno).
+func (c *CalendarioTerminale) alternaNavigazioneVim() error {
+	attiva, err := alternaNavigazioneVim(c.percorsoPreferenze)
+	if err != nil {
+		return err
+	}
+	c.navigazioneVim = attiva
+	return nil
+}
+
+// Mostra gestisce H/L o A/D (settimane), W (fine settimana), V (Vim) e Q (ritorno).
 func (c *CalendarioTerminale) Mostra(titolo string, lezioni []unimi.Lezione) error {
 	lezioni = ordinaEDeduplica(lezioni)
 	if len(lezioni) == 0 {
 		return nil
 	}
+	preferenze, err := caricaPreferenze(c.percorsoPreferenze)
+	if err != nil {
+		return err
+	}
+	c.navigazioneVim = preferenze.navigazioneVimAttiva()
+	c.mostraFineSettimana = preferenze.MostraFineSettimana
 	settimana := settimanaIniziale(lezioni, c.ora())
 	for {
 		larghezza, altezza, err := dimensioniTerminale()
@@ -85,19 +106,22 @@ func (c *CalendarioTerminale) Mostra(titolo string, lezioni []unimi.Lezione) err
 			larghezza, altezza = larghezzaFallback, altezzaFallback
 		}
 		fmt.Fprint(c.uscita, "\x1b[2J\x1b[H")
-		fmt.Fprint(c.uscita, renderCalendario(titolo, lezioni, settimana, larghezza, altezza, c.mostraFineSettimana))
+		fmt.Fprint(c.uscita, renderCalendario(titolo, lezioni, settimana, larghezza, altezza, c.mostraFineSettimana, c.navigazioneVim))
 
 		carattere, tasto, err := keyboard.GetKey()
 		if err != nil {
 			return fmt.Errorf("lettura comandi calendario: %w", err)
 		}
+		spostamento := spostamentoSettimana(carattere, tasto, c.navigazioneVim)
 		switch {
-		case tasto == keyboard.KeyArrowLeft || carattere == 'a' || carattere == 'A':
-			settimana = settimana.AddDate(0, 0, -7)
-		case tasto == keyboard.KeyArrowRight || carattere == 'd' || carattere == 'D':
-			settimana = settimana.AddDate(0, 0, 7)
+		case spostamento != 0:
+			settimana = settimana.AddDate(0, 0, 7*spostamento)
 		case carattere == 'w' || carattere == 'W':
 			if err := c.alternaFineSettimana(); err != nil {
+				return err
+			}
+		case carattere == 'v' || carattere == 'V':
+			if err := c.alternaNavigazioneVim(); err != nil {
 				return err
 			}
 		case tasto == keyboard.KeyEsc || carattere == 'q' || carattere == 'Q':
@@ -107,7 +131,18 @@ func (c *CalendarioTerminale) Mostra(titolo string, lezioni []unimi.Lezione) err
 	}
 }
 
-func renderCalendario(titolo string, lezioni []unimi.Lezione, settimana time.Time, larghezza, altezza int, mostraFineSettimana bool) string {
+func spostamentoSettimana(carattere rune, tasto keyboard.Key, navigazioneVim bool) int {
+	switch {
+	case tasto == keyboard.KeyArrowLeft || carattere == 'a' || carattere == 'A' || (navigazioneVim && (carattere == 'h' || carattere == 'H')):
+		return -1
+	case tasto == keyboard.KeyArrowRight || carattere == 'd' || carattere == 'D' || (navigazioneVim && (carattere == 'l' || carattere == 'L')):
+		return 1
+	default:
+		return 0
+	}
+}
+
+func renderCalendario(titolo string, lezioni []unimi.Lezione, settimana time.Time, larghezza, altezza int, mostraFineSettimana, navigazioneVim bool) string {
 	if larghezza < 30 {
 		larghezza = 30
 	}
@@ -122,13 +157,27 @@ func renderCalendario(titolo string, lezioni []unimi.Lezione, settimana time.Tim
 		numeroGiorni = 7
 		statoFineSettimana = "sì"
 	}
+	statoVim := "no"
+	if navigazioneVim {
+		statoVim = "sì"
+	}
 	intestazione := fmt.Sprintf("%s | %s - %s", titolo, settimana.Format("02/01/2006"), settimana.AddDate(0, 0, numeroGiorni-1).Format("02/01/2006"))
-	comandi := fmt.Sprintf("A/← precedente   D/→ successiva   W weekend: %s   Q/Esc menu", statoFineSettimana)
+	precedente, successiva := "A/←", "D/→"
+	if navigazioneVim {
+		precedente, successiva = "H/A/←", "L/D/→"
+	}
+	comandi := fmt.Sprintf("%s precedente   %s successiva   W weekend: %s   V Vim: %s   Q/Esc menu", precedente, successiva, statoFineSettimana, statoVim)
+	if larghezza < 100 {
+		comandi = fmt.Sprintf("%s prec. %s succ. W weekend: %s V Vim: %s Q/Esc", precedente, successiva, statoFineSettimana, statoVim)
+	}
 	if larghezza < 70 {
-		comandi = fmt.Sprintf("A/← prec. D/→ succ. W weekend: %s Q/Esc", statoFineSettimana)
+		if navigazioneVim {
+			precedente, successiva = "H/←", "L/→"
+		}
+		comandi = fmt.Sprintf("%s prec. %s succ. W weekend: %s V:%s Q/Esc", precedente, successiva, statoFineSettimana, statoVim)
 	}
 	if larghezza < 50 {
-		comandi = fmt.Sprintf("A/← D/→ W:%s Q/Esc", statoFineSettimana)
+		comandi = fmt.Sprintf("%s %s W:%s V:%s Q/Esc", precedente, successiva, statoFineSettimana, statoVim)
 	}
 
 	var corpo string

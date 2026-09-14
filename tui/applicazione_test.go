@@ -88,10 +88,32 @@ func (l *lettoreFinto) Leggi(string) (string, error) {
 func (s *selettoreFinto) Scegli(_ string, opzioni []string) (int, error) {
 	scelta := s.scelte[s.posizione]
 	s.posizione++
-	if scelta < 0 || scelta >= len(opzioni) {
+	if scelta < -1 || scelta >= len(opzioni) {
 		panic("scelta del test fuori dalle opzioni")
 	}
 	return scelta, nil
+}
+
+func TestIndietroDaSuggerimentiESottomenu(t *testing.T) {
+	sorgente := &sorgenteFinta{
+		anni:  []unimi.AnnoAccademico{{Codice: "2026", Nome: "2026/2027"}},
+		corsi: []unimi.CorsoDiStudio{{Codice: "F1X", Nome: "Informatica"}},
+	}
+	archivio, _ := NuovoArchivioInsegnamenti(filepath.Join(t.TempDir(), "insegnamenti.json"))
+	lettore := &lettoreFinto{risposte: []string{"info"}}
+	selettore := &selettoreFinto{scelte: []int{0, -1, 3, -1, -1}}
+	calendario := &calendarioFinto{}
+	var uscita bytes.Buffer
+	app, err := NuovaApplicazione(lettore, &uscita, sorgente, archivio, selettore, calendario)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Esegui(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if selettore.posizione != len(selettore.scelte) || calendario.chiamate != 0 || sorgente.chiamateOrariCorso != 0 {
+		t.Fatalf("ritorno dai menu inatteso: selezioni=%d, calendario=%d, recuperi=%d", selettore.posizione, calendario.chiamate, sorgente.chiamateOrariCorso)
+	}
 }
 
 func TestApplicazioneSelezionaCorso(t *testing.T) {

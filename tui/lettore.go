@@ -15,8 +15,8 @@ type LettoreTesto interface {
 	Leggi(messaggio string) (string, error)
 }
 
-// LettoreTastiera usa la stessa sessione keyboard impiegata da ManuCli. Questo
-// evita conflitti tra la modalità raw delle select e bufio/os.Stdin.
+// LettoreTastiera usa la stessa sessione keyboard dei menu e del calendario.
+// Questo evita conflitti tra la modalità raw e bufio/os.Stdin.
 type LettoreTastiera struct {
 	uscita io.Writer
 }

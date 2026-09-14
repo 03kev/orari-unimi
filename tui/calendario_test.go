@@ -9,8 +9,34 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/eiannone/keyboard"
+
 	"orari-unimi/unimi"
 )
+
+func TestComandiVimCambianoSettimana(t *testing.T) {
+	for _, tc := range []struct {
+		carattere rune
+		tasto     keyboard.Key
+		atteso    int
+	}{
+		{'h', 0, -1}, {'l', 0, 1},
+		{'a', 0, -1}, {'d', 0, 1},
+		{0, keyboard.KeyArrowLeft, -1}, {0, keyboard.KeyArrowRight, 1},
+		{'j', 0, 0}, {'k', 0, 0},
+	} {
+		if ottenuto := spostamentoSettimana(tc.carattere, tc.tasto, true); ottenuto != tc.atteso {
+			t.Fatalf("tasto %q/%d: spostamento %d, atteso %d", tc.carattere, tc.tasto, ottenuto, tc.atteso)
+		}
+	}
+	if spostamentoSettimana('h', 0, false) != 0 || spostamentoSettimana('l', 0, false) != 0 {
+		t.Fatal("H/L non devono spostare le settimane quando la navigazione Vim è disattivata")
+	}
+	comandi := renderCalendario("Informatica", nil, time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC), 80, 20, false, false)
+	if strings.Contains(comandi, "H/A/←") || strings.Contains(comandi, "L/D/→") {
+		t.Fatal("il calendario mostra scorciatoie Vim disattivate")
+	}
+}
 
 var sequenzaColoreANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
@@ -24,9 +50,9 @@ func TestRenderCalendarioRispettaDimensioniFinestra(t *testing.T) {
 	}
 
 	for _, mostraFineSettimana := range []bool{false, true} {
-		verificaDimensioniRender(t, renderCalendario("Informatica", lezioni, settimana, 140, 16, mostraFineSettimana), 140, 16)
-		verificaDimensioniRender(t, renderCalendario("Informatica", lezioni, settimana, 80, 12, mostraFineSettimana), 80, 12)
-		stretto := renderCalendario("Informatica", lezioni, settimana, 30, 10, mostraFineSettimana)
+		verificaDimensioniRender(t, renderCalendario("Informatica", lezioni, settimana, 140, 16, mostraFineSettimana, true), 140, 16)
+		verificaDimensioniRender(t, renderCalendario("Informatica", lezioni, settimana, 80, 12, mostraFineSettimana, true), 80, 12)
+		stretto := renderCalendario("Informatica", lezioni, settimana, 30, 10, mostraFineSettimana, true)
 		verificaDimensioniRender(t, stretto, 30, 10)
 		if !strings.Contains(stretto, "W:") || !strings.Contains(stretto, "Q/Esc") {
 			t.Fatalf("comandi incompleti nel terminale stretto:\n%s", stretto)
@@ -40,14 +66,14 @@ func TestRenderCalendarioUsaLaGrigliaInUnTerminaleStandard(t *testing.T) {
 		ID: "1", Data: settimana, OraInizio: "08:30", OraFine: "10:30", Insegnamento: "Programmazione", Aula: "Aula Alfa",
 	}}
 
-	griglia := renderCalendario("Informatica", lezioni, settimana, 80, 24, true)
+	griglia := renderCalendario("Informatica", lezioni, settimana, 80, 24, true, true)
 	if !strings.Contains(griglia, "+----------+") || !strings.Contains(griglia, "Lun 14/09") || !strings.Contains(griglia, "Dom 20/09") {
 		t.Fatalf("griglia settimanale inattesa:\n%s", griglia)
 	}
 	if !strings.Contains(griglia, "08:30") || !strings.Contains(griglia, "|Lun 14/09 ") {
 		t.Fatalf("le lezioni non sono disposte nelle celle del calendario:\n%s", griglia)
 	}
-	compatto := renderCalendario("Informatica", lezioni, settimana, 60, 18, true)
+	compatto := renderCalendario("Informatica", lezioni, settimana, 60, 18, true, true)
 	if strings.Contains(compatto, "+----------+") || !strings.Contains(compatto, "Lun 14/09 |") || !strings.Contains(compatto, "Dom 20/09 | -") {
 		t.Fatalf("agenda compatta inattesa:\n%s", compatto)
 	}
@@ -60,11 +86,11 @@ func TestFineSettimanaNascostoEMostratoInGrigliaEAgenda(t *testing.T) {
 		{ID: "domenica", Data: settimana.AddDate(0, 0, 6), OraInizio: "11:00", OraFine: "12:00", Insegnamento: "Lezione domenica"},
 	}
 	for _, larghezza := range []int{80, 60} {
-		nascosto := renderCalendario("Informatica", lezioni, settimana, larghezza, 20, false)
+		nascosto := renderCalendario("Informatica", lezioni, settimana, larghezza, 20, false, true)
 		if strings.Contains(nascosto, "Sab 19/09") || strings.Contains(nascosto, "Dom 20/09") || strings.Contains(nascosto, "09:00") || strings.Contains(nascosto, "11:00") || !strings.Contains(nascosto, "W weekend: no") {
 			t.Fatalf("fine settimana visibile con opzione disattivata (%d colonne):\n%s", larghezza, nascosto)
 		}
-		mostrato := renderCalendario("Informatica", lezioni, settimana, larghezza, 20, true)
+		mostrato := renderCalendario("Informatica", lezioni, settimana, larghezza, 20, true, true)
 		if !strings.Contains(mostrato, "Sab 19/09") || !strings.Contains(mostrato, "Dom 20/09") || !strings.Contains(mostrato, "09:00") || !strings.Contains(mostrato, "11:00") || !strings.Contains(mostrato, "W weekend: sì") {
 			t.Fatalf("fine settimana assente con opzione attivata (%d colonne):\n%s", larghezza, mostrato)
 		}
