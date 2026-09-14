@@ -20,8 +20,10 @@ La ricerca non distingue tra maiuscole, minuscole e vocali accentate.
 La selezione di un corso, docente o insegnamento recupera gli orari effettivi
 pubblicati da UNIMI e li mostra in un calendario settimanale. Premi `A` o la
 freccia sinistra per la settimana precedente, `D` o la freccia destra per la
-successiva e `Q` o `Esc` per tornare al menu. Il calendario si adatta alla
-finestra: usa una griglia a sette colonne anche nei comuni terminali da 80
+successiva, `W` per mostrare o nascondere sabato e domenica e `Q` o `Esc` per
+tornare al menu. Il fine settimana è nascosto inizialmente; la scelta viene
+ricordata alle aperture successive. Il calendario si adatta alla
+finestra: usa una griglia anche nei comuni terminali da 80
 caratteri e passa a un'agenda compatta solo nelle finestre molto strette,
 limitando le lezioni visibili senza uscire dall'area disponibile.
 I nomi degli insegnamenti vanno a capo dentro la propria cella e ogni
@@ -36,7 +38,8 @@ date incluse.
 Gli insegnamenti personali vengono salvati in
 `orari-unimi/insegnamenti.json` all'interno della cartella di configurazione
 dell'utente. Il percorso può essere personalizzato impostando la variabile
-d'ambiente `ORARI_UNIMI_FILE`.
+d'ambiente `ORARI_UNIMI_FILE`. La preferenza del fine settimana viene salvata
+nel file `preferenze.json` nella stessa cartella.
 
 Lo schermo viene ripulito a ogni passaggio tra menu, ricerca, conferme e
 calendario. Eventuali messaggi di esito vengono riportati nella schermata

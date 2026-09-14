@@ -89,7 +89,7 @@ func avviaTUI(ctx context.Context, client *unimi.Client) {
 	terminaSeErrore(err)
 	lettore, err := tui.NuovoLettoreTastiera(os.Stdout)
 	terminaSeErrore(err)
-	calendario, err := tui.NuovoCalendarioTerminale(os.Stdout)
+	calendario, err := tui.NuovoCalendarioTerminale(os.Stdout, filepath.Join(filepath.Dir(percorso), "preferenze.json"))
 	terminaSeErrore(err)
 	applicazione, err := tui.NuovaApplicazione(lettore, os.Stdout, client, archivio, tui.NuovoSelettoreManuCLI(), calendario)
 	terminaSeErrore(err)

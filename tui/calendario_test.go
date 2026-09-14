@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"bytes"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -21,8 +23,15 @@ func TestRenderCalendarioRispettaDimensioniFinestra(t *testing.T) {
 		{ID: "4", Data: settimana.AddDate(0, 0, 2), OraInizio: "09:30", OraFine: "11:30", Insegnamento: "Reti", Annullata: true},
 	}
 
-	verificaDimensioniRender(t, renderCalendario("Informatica", lezioni, settimana, 140, 16), 140, 16)
-	verificaDimensioniRender(t, renderCalendario("Informatica", lezioni, settimana, 80, 12), 80, 12)
+	for _, mostraFineSettimana := range []bool{false, true} {
+		verificaDimensioniRender(t, renderCalendario("Informatica", lezioni, settimana, 140, 16, mostraFineSettimana), 140, 16)
+		verificaDimensioniRender(t, renderCalendario("Informatica", lezioni, settimana, 80, 12, mostraFineSettimana), 80, 12)
+		stretto := renderCalendario("Informatica", lezioni, settimana, 30, 10, mostraFineSettimana)
+		verificaDimensioniRender(t, stretto, 30, 10)
+		if !strings.Contains(stretto, "W:") || !strings.Contains(stretto, "Q/Esc") {
+			t.Fatalf("comandi incompleti nel terminale stretto:\n%s", stretto)
+		}
+	}
 }
 
 func TestRenderCalendarioUsaLaGrigliaInUnTerminaleStandard(t *testing.T) {
@@ -31,16 +40,59 @@ func TestRenderCalendarioUsaLaGrigliaInUnTerminaleStandard(t *testing.T) {
 		ID: "1", Data: settimana, OraInizio: "08:30", OraFine: "10:30", Insegnamento: "Programmazione", Aula: "Aula Alfa",
 	}}
 
-	griglia := renderCalendario("Informatica", lezioni, settimana, 80, 24)
+	griglia := renderCalendario("Informatica", lezioni, settimana, 80, 24, true)
 	if !strings.Contains(griglia, "+----------+") || !strings.Contains(griglia, "Lun 14/09") || !strings.Contains(griglia, "Dom 20/09") {
 		t.Fatalf("griglia settimanale inattesa:\n%s", griglia)
 	}
 	if !strings.Contains(griglia, "08:30") || !strings.Contains(griglia, "|Lun 14/09 ") {
 		t.Fatalf("le lezioni non sono disposte nelle celle del calendario:\n%s", griglia)
 	}
-	compatto := renderCalendario("Informatica", lezioni, settimana, 60, 18)
+	compatto := renderCalendario("Informatica", lezioni, settimana, 60, 18, true)
 	if strings.Contains(compatto, "+----------+") || !strings.Contains(compatto, "Lun 14/09 |") || !strings.Contains(compatto, "Dom 20/09 | -") {
 		t.Fatalf("agenda compatta inattesa:\n%s", compatto)
+	}
+}
+
+func TestFineSettimanaNascostoEMostratoInGrigliaEAgenda(t *testing.T) {
+	settimana := time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC)
+	lezioni := []unimi.Lezione{
+		{ID: "sabato", Data: settimana.AddDate(0, 0, 5), OraInizio: "09:00", OraFine: "10:00", Insegnamento: "Lezione sabato"},
+		{ID: "domenica", Data: settimana.AddDate(0, 0, 6), OraInizio: "11:00", OraFine: "12:00", Insegnamento: "Lezione domenica"},
+	}
+	for _, larghezza := range []int{80, 60} {
+		nascosto := renderCalendario("Informatica", lezioni, settimana, larghezza, 20, false)
+		if strings.Contains(nascosto, "Sab 19/09") || strings.Contains(nascosto, "Dom 20/09") || strings.Contains(nascosto, "09:00") || strings.Contains(nascosto, "11:00") || !strings.Contains(nascosto, "W weekend: no") {
+			t.Fatalf("fine settimana visibile con opzione disattivata (%d colonne):\n%s", larghezza, nascosto)
+		}
+		mostrato := renderCalendario("Informatica", lezioni, settimana, larghezza, 20, true)
+		if !strings.Contains(mostrato, "Sab 19/09") || !strings.Contains(mostrato, "Dom 20/09") || !strings.Contains(mostrato, "09:00") || !strings.Contains(mostrato, "11:00") || !strings.Contains(mostrato, "W weekend: sì") {
+			t.Fatalf("fine settimana assente con opzione attivata (%d colonne):\n%s", larghezza, mostrato)
+		}
+	}
+}
+
+func TestPreferenzaFineSettimanaRestaSalvata(t *testing.T) {
+	percorso := filepath.Join(t.TempDir(), "preferenze.json")
+	calendario, err := NuovoCalendarioTerminale(&bytes.Buffer{}, percorso)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calendario.mostraFineSettimana {
+		t.Fatal("il fine settimana deve essere nascosto per impostazione predefinita")
+	}
+	if err := calendario.alternaFineSettimana(); err != nil {
+		t.Fatal(err)
+	}
+	calendario, err = NuovoCalendarioTerminale(&bytes.Buffer{}, percorso)
+	if err != nil || !calendario.mostraFineSettimana {
+		t.Fatalf("preferenza attivata non ricaricata: calendario=%#v, errore=%v", calendario, err)
+	}
+	if err := calendario.alternaFineSettimana(); err != nil {
+		t.Fatal(err)
+	}
+	calendario, err = NuovoCalendarioTerminale(&bytes.Buffer{}, percorso)
+	if err != nil || calendario.mostraFineSettimana {
+		t.Fatalf("preferenza disattivata non ricaricata: calendario=%#v, errore=%v", calendario, err)
 	}
 }
 
