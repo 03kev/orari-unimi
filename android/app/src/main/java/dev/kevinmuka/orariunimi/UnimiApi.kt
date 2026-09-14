@@ -37,12 +37,26 @@ class UnimiApi(private val baseUrl: String = "https://orari-be.divsi.unimi.it/Ag
                 else -> value.optString("label")
             }
             if (code.isBlank() || name.isBlank()) return@mapNotNull null
-            val paths = value.optJSONArray("elenco_anni")?.let { pathValues ->
-                (0 until pathValues.length()).mapNotNull { pathIndex ->
-                    pathValues.optJSONObject(pathIndex)?.optString("valore")?.takeIf { it.isNotBlank() }
+            val coursePaths = value.optJSONArray("elenco_anni")?.let { pathValues ->
+                (0 until pathValues.length()).mapNotNull pathLoop@ { pathIndex ->
+                    val path = pathValues.optJSONObject(pathIndex) ?: return@pathLoop null
+                    val pathCode = path.optString("valore")
+                    if (pathCode.isBlank()) return@pathLoop null
+                    val subjects = path.optJSONArray("elenco_insegnamenti")
+                    val teachings = (0 until (subjects?.length() ?: 0)).mapNotNull subjectLoop@ { subjectIndex ->
+                        val subject = subjects?.optJSONObject(subjectIndex) ?: return@subjectLoop null
+                        val subjectCode = subject.optString("valore")
+                        val subjectName = subject.optString("label")
+                        if (subjectCode.isBlank() || subjectName.isBlank()) null else CourseTeaching(
+                            subjectCode, repair(subjectName), repair(subject.optString("docente"))
+                        )
+                    }
+                    CoursePath(pathCode, repair(path.optString("label")), teachings)
                 }
             }.orEmpty()
-            SearchItem(code, repair(name), kind, paths)
+            SearchItem(code, repair(name), kind, coursePaths.map { it.code },
+                if (kind == SearchKind.COURSE) DegreeType.fromPortal(value.optString("tipo")) else null,
+                coursePaths)
         }
     }
 

@@ -12,14 +12,33 @@ enum class SearchKind(val label: String, val subtitle: String) {
 
 data class AcademicYear(val code: String, val name: String)
 
+enum class DegreeType(val label: String) {
+    BACHELOR("Triennale"), MASTER("Magistrale"), SINGLE_CYCLE("Ciclo unico"), OTHER("Altro");
+
+    companion object {
+        fun fromPortal(value: String): DegreeType = when (value.trim().uppercase(Locale.ROOT)) {
+            "CDS TRIENNALE" -> BACHELOR
+            "CDS MAGISTRALE" -> MASTER
+            "CDS MAGISTRALE A CICLO UNICO" -> SINGLE_CYCLE
+            else -> OTHER
+        }
+    }
+}
+
+data class CourseTeaching(val code: String, val name: String, val teacher: String)
+data class CoursePath(val code: String, val name: String, val teachings: List<CourseTeaching>)
+
 data class SearchItem(
     val code: String,
     val name: String,
     val kind: SearchKind,
-    val paths: List<String> = emptyList()
+    val paths: List<String> = emptyList(),
+    val degreeType: DegreeType? = null,
+    val coursePaths: List<CoursePath> = emptyList()
 )
 
 data class SavedSubject(val year: String, val code: String, val name: String)
+data class FavoriteCourse(val year: String, val code: String, val name: String, val degreeType: DegreeType)
 
 data class Lesson(
     val id: String,

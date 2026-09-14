@@ -8,10 +8,12 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -26,13 +28,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Keyboard
-import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Refresh
@@ -68,7 +71,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
@@ -93,9 +95,10 @@ private val lessonColors = listOf(
 fun SearchScreen(
     years: List<AcademicYear>, year: AcademicYear?, loadingYears: Boolean,
     kind: SearchKind, query: String, results: List<SearchItem>, loadingEntries: Boolean,
-    selectedIndex: Int,
+    favorites: List<FavoriteCourse>,
     onYear: (AcademicYear) -> Unit, onKind: (SearchKind) -> Unit,
-    onQuery: (String) -> Unit, onFocus: (Boolean) -> Unit, onSelect: (SearchItem) -> Unit,
+    onQuery: (String) -> Unit, onSelect: (SearchItem) -> Unit,
+    onToggleCourseFavorite: (SearchItem) -> Unit,
     onRetryYears: () -> Unit, onRetryEntries: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
@@ -132,14 +135,14 @@ fun SearchScreen(
                             Icon(when (option) {
                                 SearchKind.COURSE -> Icons.Outlined.School
                                 SearchKind.TEACHER -> Icons.Outlined.PersonOutline
-                                SearchKind.SUBJECT -> Icons.Outlined.MenuBook
+                                SearchKind.SUBJECT -> Icons.AutoMirrored.Outlined.MenuBook
                             }, contentDescription = null, Modifier.size(18.dp))
                         }} else null)
                 }
             }
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
-                value = query, onValueChange = onQuery, modifier = Modifier.fillMaxWidth().onFocusChanged { onFocus(it.isFocused) },
+                value = query, onValueChange = onQuery, modifier = Modifier.fillMaxWidth(),
                 singleLine = true, shape = RoundedCornerShape(18.dp),
                 label = { Text("Cerca ${kind.label.lowercase(italian)}") },
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
@@ -167,10 +170,11 @@ fun SearchScreen(
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                itemsIndexed(results, key = { _, item -> "${item.kind}:${item.code}" }) { index, item ->
-                    SearchResultCard(item, selected = index == selectedIndex, onClick = {
-                        focusManager.clearFocus(); onSelect(item)
-                    })
+                items(results, key = { item -> "${item.kind}:${item.code}" }) { item ->
+                    SearchResultCard(item,
+                        favorite = favorites.any { it.year == year.code && it.code == item.code },
+                        onClick = { focusManager.clearFocus(); onSelect(item) },
+                        onToggleFavorite = { onToggleCourseFavorite(item) })
                 }
             }
         }
@@ -178,11 +182,13 @@ fun SearchScreen(
 }
 
 @Composable
-private fun SearchResultCard(item: SearchItem, selected: Boolean, onClick: () -> Unit) {
+private fun SearchResultCard(item: SearchItem, favorite: Boolean, onClick: () -> Unit,
+                             onToggleFavorite: () -> Unit) {
+    val palette = item.degreeType?.let { degreePalette(it) }
     Card(
         onClick = onClick, shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.surfaceContainerLow)
+        colors = CardDefaults.cardColors(containerColor = palette?.container
+            ?: MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(shape = RoundedCornerShape(13.dp), color = MaterialTheme.colorScheme.surface,
@@ -191,8 +197,8 @@ private fun SearchResultCard(item: SearchItem, selected: Boolean, onClick: () ->
                     Icon(when (item.kind) {
                         SearchKind.COURSE -> Icons.Outlined.School
                         SearchKind.TEACHER -> Icons.Outlined.PersonOutline
-                        SearchKind.SUBJECT -> Icons.Outlined.MenuBook
-                    }, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        SearchKind.SUBJECT -> Icons.AutoMirrored.Outlined.MenuBook
+                    }, contentDescription = null, tint = palette?.accent ?: MaterialTheme.colorScheme.primary)
                 }
             }
             Spacer(Modifier.width(13.dp))
@@ -202,8 +208,16 @@ private fun SearchResultCard(item: SearchItem, selected: Boolean, onClick: () ->
                 Spacer(Modifier.height(3.dp))
                 Text(item.code, style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (item.degreeType != null) {
+                    Spacer(Modifier.height(5.dp))
+                    DegreeBadge(item.degreeType)
+                }
             }
-            Icon(Icons.Outlined.ChevronRight, contentDescription = null,
+            if (item.kind == SearchKind.COURSE) IconButton(onClick = onToggleFavorite) {
+                Icon(if (favorite) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                    contentDescription = if (favorite) "Rimuovi ${item.name} dai preferiti"
+                        else "Salva ${item.name} nei preferiti", tint = palette?.accent ?: MaterialTheme.colorScheme.primary)
+            } else Icon(Icons.Outlined.ChevronRight, contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -211,7 +225,7 @@ private fun SearchResultCard(item: SearchItem, selected: Boolean, onClick: () ->
 
 @Composable
 fun SavedScreen(
-    saved: List<SavedSubject>, selectedIndex: Int,
+    saved: List<SavedSubject>,
     onOpen: (SavedSubject) -> Unit, onCombined: () -> Unit, onAdd: () -> Unit,
     onRemove: (SavedSubject) -> Unit, onClear: () -> Unit
 ) {
@@ -257,13 +271,12 @@ fun SavedScreen(
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            itemsIndexed(saved, key = { _, item -> "${item.year}:${item.code}" }) { index, item ->
+            items(saved, key = { item -> "${item.year}:${item.code}" }) { item ->
                 Card(onClick = { onOpen(item) }, shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = if (selectedIndex == index)
-                        MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)) {
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(item.name, style = MaterialTheme.typography.titleMedium, maxLines = 2,
@@ -282,7 +295,7 @@ fun SavedScreen(
 }
 
 @Composable
-fun SettingsScreen(weekend: Boolean, vim: Boolean, onWeekend: () -> Unit, onVim: () -> Unit) {
+fun SettingsScreen(weekend: Boolean, onWeekend: () -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -297,14 +310,12 @@ fun SettingsScreen(weekend: Boolean, vim: Boolean, onWeekend: () -> Unit, onVim:
         }
         item { SettingCard(Icons.Outlined.CalendarMonth, "Mostra il weekend",
             "Aggiunge sabato e domenica alla settimana.", weekend, onWeekend) }
-        item { SettingCard(Icons.Outlined.Keyboard, "Navigazione Vim",
-            "Usa h, j, k, l con una tastiera esterna. Il tocco resta sempre disponibile.", vim, onVim) }
         item {
             Spacer(Modifier.height(12.dp))
             Text("DATI E PRIVACY", style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(9.dp))
-            Text("Gli orari arrivano dal portale pubblico UNIMI. Gli insegnamenti salvati e le preferenze rimangono solo sul telefono.",
+            Text("Gli orari arrivano dal portale pubblico UNIMI. Insegnamenti, corsi preferiti e preferenze rimangono solo sul telefono.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -337,7 +348,8 @@ private fun SettingCard(icon: androidx.compose.ui.graphics.vector.ImageVector, t
 @Composable
 fun CalendarScreen(
     calendar: CalendarData, week: LocalDate, selectedDay: LocalDate, weekend: Boolean,
-    onMoveWeek: (Long) -> Unit, onSelectDay: (LocalDate) -> Unit, onToggleWeekend: () -> Unit
+    savedSubjects: List<SavedSubject>, onToggleSubject: (Lesson) -> Unit,
+    onMoveWeek: (Long) -> Unit, onSelectDay: (LocalDate) -> Unit
 ) {
     val days = (0 until if (weekend) 7 else 5).map { week.plusDays(it.toLong()) }
     val visibleLessons = calendar.lessons.filter { it.date == selectedDay }
@@ -352,12 +364,10 @@ fun CalendarScreen(
                 }
             }
             Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                FilterChip(selected = weekend, onClick = onToggleWeekend, label = { Text("Weekend") })
-                Spacer(Modifier.width(11.dp))
-                Text("${calendar.lessons.size} lezioni nell’anno", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            Text("${calendar.lessons.size} lezioni nell’anno" +
+                if (weekend) " · scorri i giorni per il weekend" else "",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainer)
         LazyColumn(
@@ -376,7 +386,13 @@ fun CalendarScreen(
             if (visibleLessons.isEmpty()) item {
                 EmptyCard("Nessuna lezione in questo giorno", "Scegli un’altra data o cambia settimana.")
             }
-            items(visibleLessons, key = { "${it.id}:${it.subjectCode}:${it.start}" }) { lesson -> LessonCard(lesson) }
+            items(visibleLessons, key = { "${it.id}:${it.subjectCode}:${it.start}" }) { lesson ->
+                val canSave = calendar.source?.kind == SearchKind.COURSE ||
+                    calendar.source?.kind == SearchKind.TEACHER
+                LessonCard(lesson,
+                    saved = savedSubjects.any { it.year == calendar.year && it.code == lesson.subjectCode },
+                    onToggleSave = if (canSave) {{ onToggleSubject(lesson) }} else null)
+            }
         }
     }
 }
@@ -427,12 +443,13 @@ private fun DayTile(day: LocalDate, selected: Boolean, count: Int, onClick: () -
 }
 
 @Composable
-private fun LessonCard(lesson: Lesson) {
+private fun LessonCard(lesson: Lesson, saved: Boolean, onToggleSave: (() -> Unit)?) {
     val accent = lessonColors[(lesson.subjectCode.hashCode() and Int.MAX_VALUE) % lessonColors.size]
     Card(shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-        Row(Modifier.fillMaxWidth()) {
-            Box(Modifier.width(5.dp).height(156.dp).background(if (lesson.cancelled) MaterialTheme.colorScheme.error else accent))
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+            Box(Modifier.width(5.dp).fillMaxHeight()
+                .background(if (lesson.cancelled) MaterialTheme.colorScheme.error else accent))
             Column(Modifier.weight(1f).padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("${lesson.start}–${lesson.end}", style = MaterialTheme.typography.labelLarge,
@@ -447,8 +464,15 @@ private fun LessonCard(lesson: Lesson) {
                     }
                 }
                 Spacer(Modifier.height(7.dp))
-                Text(lesson.subject.ifBlank { "Insegnamento" }, style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(lesson.subject.ifBlank { "Insegnamento" }, Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    if (onToggleSave != null) IconButton(onClick = onToggleSave) {
+                        Icon(if (saved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                            contentDescription = if (saved) "Rimuovi ${lesson.subject} dai miei orari"
+                                else "Salva ${lesson.subject} nei miei orari")
+                    }
+                }
                 if (lesson.room.isNotBlank()) {
                     Spacer(Modifier.height(7.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {

@@ -1,7 +1,6 @@
 package dev.kevinmuka.orariunimi
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,15 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,6 +47,7 @@ import java.time.temporal.TemporalAdjusters
 import kotlin.math.abs
 
 data class CalendarData(val title: String, val lessons: List<Lesson>, val year: String, val source: SearchItem?)
+data class CourseDetailData(val year: String, val course: SearchItem)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,31 +57,26 @@ fun OrariApp() {
     val api = remember { UnimiApi() }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    val focusManager = LocalFocusManager.current
-    val rootFocus = remember { FocusRequester() }
-
     var tab by remember { mutableIntStateOf(0) }
     var settings by remember { mutableStateOf(false) }
     var calendar by remember { mutableStateOf<CalendarData?>(null) }
+    var courseDetail by remember { mutableStateOf<CourseDetailData?>(null) }
     var years by remember { mutableStateOf<List<AcademicYear>>(emptyList()) }
     var year by remember { mutableStateOf<AcademicYear?>(null) }
     var yearRetry by remember { mutableIntStateOf(0) }
     var loadingYears by remember { mutableStateOf(true) }
     var kind by remember { mutableStateOf(SearchKind.COURSE) }
     var query by remember { mutableStateOf("") }
-    var searchFocused by remember { mutableStateOf(false) }
     var entries by remember { mutableStateOf<Map<SearchKind, List<SearchItem>>>(emptyMap()) }
     var entriesRetry by remember { mutableIntStateOf(0) }
     var loadingEntries by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var saved by remember { mutableStateOf(store.saved()) }
+    var favorites by remember { mutableStateOf(store.favoriteCourses()) }
     var weekend by remember { mutableStateOf(store.showWeekend) }
-    var vim by remember { mutableStateOf(store.vimNavigation) }
     var week by remember { mutableStateOf(startOfWeek(LocalDate.now())) }
     var selectedDay by remember { mutableStateOf(LocalDate.now()) }
-    var selectedSearchIndex by remember { mutableIntStateOf(0) }
-    var selectedSavedIndex by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(yearRetry) {
         loadingYears = true
@@ -122,7 +109,6 @@ fun OrariApp() {
     }
 
     val results = filterItems(entries[kind].orEmpty(), query)
-    LaunchedEffect(query, kind) { selectedSearchIndex = 0 }
 
     fun toggleWeekend() {
         weekend = !weekend
@@ -130,10 +116,18 @@ fun OrariApp() {
         if (!weekend && selectedDay.dayOfWeek.value > DayOfWeek.FRIDAY.value) selectedDay = week
     }
 
-    fun toggleVim() {
-        vim = !vim
-        store.vimNavigation = vim
-        scope.launch { snackbar.showSnackbar("Navigazione Vim ${if (vim) "attiva" else "disattivata"}") }
+    fun toggleSaved(subject: SavedSubject) {
+        val isSaved = saved.any { it.year == subject.year && it.code == subject.code }
+        if (isSaved) store.remove(subject) else store.add(subject)
+        saved = store.saved()
+        scope.launch { snackbar.showSnackbar(if (isSaved) "Rimosso dai tuoi orari" else "Aggiunto ai tuoi orari") }
+    }
+
+    fun toggleFavorite(course: FavoriteCourse) {
+        val isFavorite = favorites.any { it.year == course.year && it.code == course.code }
+        if (isFavorite) store.removeFavoriteCourse(course) else store.addFavoriteCourse(course)
+        favorites = store.favoriteCourses()
+        scope.launch { snackbar.showSnackbar(if (isFavorite) "Rimosso dai preferiti" else "Corso salvato nei preferiti") }
     }
 
     fun moveWeek(amount: Long) {
@@ -163,19 +157,43 @@ fun OrariApp() {
 
     fun openItem(item: SearchItem) {
         val currentYear = year ?: return
-        showCalendar(item.name, currentYear.code, item)
+        if (item.kind == SearchKind.COURSE) courseDetail = CourseDetailData(currentYear.code, item)
+        else showCalendar(item.name, currentYear.code, item)
+    }
+
+    fun openFavorite(favorite: FavoriteCourse) {
+        scope.launch {
+            busy = true
+            error = null
+            try {
+                val cached = if (favorite.year == year?.code) entries[SearchKind.COURSE]
+                    ?.firstOrNull { it.code == favorite.code } else null
+                val course = cached ?: withContext(Dispatchers.IO) {
+                    api.entries(SearchKind.COURSE, favorite.year).firstOrNull { it.code == favorite.code }
+                } ?: throw IllegalStateException("Il corso non è più disponibile per l'anno ${favorite.year}.")
+                courseDetail = CourseDetailData(favorite.year, course)
+            } catch (cause: Exception) {
+                error = cause.message ?: "Impossibile aprire il corso preferito."
+            } finally {
+                busy = false
+            }
+        }
     }
 
     fun openSaved(subject: SavedSubject) = showCalendar(
         subject.name, subject.year, SearchItem(subject.code, subject.name, SearchKind.SUBJECT)
     )
 
-    BackHandler(enabled = calendar != null || settings) {
-        if (calendar != null) calendar = null else settings = false
+    fun goBack() {
+        when {
+            calendar != null -> calendar = null
+            courseDetail != null -> courseDetail = null
+            else -> settings = false
+        }
         error = null
     }
 
-    LaunchedEffect(Unit) { rootFocus.requestFocus() }
+    BackHandler(enabled = calendar != null || courseDetail != null || settings) { goBack() }
 
     Scaffold(
         topBar = {
@@ -183,6 +201,8 @@ fun OrariApp() {
                 title = {
                     when {
                         calendar != null -> Text(calendar!!.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        courseDetail != null -> Text(courseDetail!!.course.name, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
                         settings -> Text("Preferenze")
                         else -> Column {
                             Text("Orari UNIMI", style = MaterialTheme.typography.titleLarge)
@@ -192,29 +212,31 @@ fun OrariApp() {
                     }
                 },
                 navigationIcon = {
-                    if (calendar != null || settings) IconButton(onClick = {
-                        if (calendar != null) calendar = null else settings = false
-                        error = null
-                    }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Indietro") }
+                    if (calendar != null || courseDetail != null || settings) IconButton(onClick = ::goBack) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Indietro")
+                    }
                 },
                 actions = {
                     val shown = calendar
                     if (shown?.source?.kind == SearchKind.SUBJECT) {
                         val subject = SavedSubject(shown.year, shown.source.code, shown.source.name)
                         val isSaved = saved.any { it.year == subject.year && it.code == subject.code }
-                        IconButton(onClick = {
-                            if (isSaved) {
-                                store.remove(subject)
-                                saved = store.saved()
-                                scope.launch { snackbar.showSnackbar("Rimosso dai tuoi orari") }
-                            } else {
-                                store.add(subject)
-                                saved = store.saved()
-                                scope.launch { snackbar.showSnackbar("Aggiunto ai tuoi orari") }
-                            }
-                        }) { Icon(if (isSaved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                        IconButton(onClick = { toggleSaved(subject) }) {
+                            Icon(if (isSaved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
                             contentDescription = if (isSaved) "Rimuovi dai miei orari" else "Salva nei miei orari") }
-                    } else if (calendar == null && !settings) {
+                    } else if (shown?.source?.kind == SearchKind.COURSE ||
+                        calendar == null && courseDetail != null) {
+                        val detail = if (shown?.source?.kind == SearchKind.COURSE)
+                            CourseDetailData(shown.year, shown.source) else courseDetail!!
+                        val favorite = FavoriteCourse(detail.year, detail.course.code, detail.course.name,
+                            detail.course.degreeType ?: DegreeType.OTHER)
+                        val isFavorite = favorites.any { it.year == favorite.year && it.code == favorite.code }
+                        IconButton(onClick = { toggleFavorite(favorite) }) {
+                            Icon(if (isFavorite) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                                contentDescription = if (isFavorite) "Rimuovi corso dai preferiti"
+                                    else "Salva corso nei preferiti")
+                        }
+                    } else if (calendar == null && courseDetail == null && !settings) {
                         IconButton(onClick = { settings = true; error = null }) {
                             Icon(Icons.Outlined.Settings, contentDescription = "Preferenze")
                         }
@@ -223,7 +245,7 @@ fun OrariApp() {
             )
         },
         bottomBar = {
-            if (calendar == null && !settings) NavigationBar {
+            if (calendar == null && courseDetail == null && !settings) NavigationBar {
                 NavigationBarItem(
                     selected = tab == 0, onClick = { tab = 0; error = null },
                     icon = { Icon(Icons.Outlined.Search, contentDescription = null) }, label = { Text("Esplora") }
@@ -232,86 +254,80 @@ fun OrariApp() {
                     selected = tab == 1, onClick = { tab = 1; error = null },
                     icon = { Icon(Icons.Outlined.CalendarMonth, contentDescription = null) }, label = { Text("I miei orari") }
                 )
+                NavigationBarItem(
+                    selected = tab == 2, onClick = { tab = 2; error = null },
+                    icon = { Icon(Icons.Outlined.BookmarkBorder, contentDescription = null) }, label = { Text("Preferiti") }
+                )
             }
         },
         snackbarHost = { SnackbarHost(snackbar) }
     ) { padding ->
-        Box(
-            Modifier.fillMaxSize().padding(padding).focusRequester(rootFocus).focusable()
-                .onPreviewKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                    val key = event.nativeKeyEvent.unicodeChar.toChar().lowercaseChar()
-                    if (searchFocused && calendar == null && !settings) {
-                        if (event.key == Key.Escape) { focusManager.clearFocus(); true } else false
-                    } else if (calendar != null) {
-                        when {
-                            key == 'q' || event.key == Key.Escape -> { calendar = null; true }
-                            key == 'w' -> { toggleWeekend(); true }
-                            key == 'v' -> { toggleVim(); true }
-                            vim && key == 'h' -> { moveWeek(-1); true }
-                            vim && key == 'l' -> { moveWeek(1); true }
-                            else -> false
-                        }
-                    } else if (!settings) {
-                        when {
-                            key == 'v' -> { toggleVim(); true }
-                            !vim -> false
-                            tab == 0 && key == 'j' && results.isNotEmpty() -> {
-                                selectedSearchIndex = (selectedSearchIndex + 1) % results.size; true
-                            }
-                            tab == 0 && key == 'k' && results.isNotEmpty() -> {
-                                selectedSearchIndex = (selectedSearchIndex - 1 + results.size) % results.size; true
-                            }
-                            tab == 0 && key == 'l' && results.isNotEmpty() -> {
-                                openItem(results[selectedSearchIndex.coerceIn(results.indices)]); true
-                            }
-                            tab == 1 && key == 'j' && saved.isNotEmpty() -> {
-                                selectedSavedIndex = (selectedSavedIndex + 1) % saved.size; true
-                            }
-                            tab == 1 && key == 'k' && saved.isNotEmpty() -> {
-                                selectedSavedIndex = (selectedSavedIndex - 1 + saved.size) % saved.size; true
-                            }
-                            tab == 1 && key == 'l' && saved.isNotEmpty() -> {
-                                openSaved(saved[selectedSavedIndex.coerceIn(saved.indices)]); true
-                            }
-                            tab == 1 && key == 'h' -> { tab = 0; true }
-                            else -> false
-                        }
-                    } else false
-                }
-        ) {
+        Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
-                if (loadingEntries && tab == 0 && calendar == null && !settings || busy) {
+                if (loadingEntries && tab == 0 && calendar == null && courseDetail == null && !settings || busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
                 if (error != null) ErrorBanner(error!!, onDismiss = { error = null },
-                    onRetry = if (year == null) {{ yearRetry++ }} else if (calendar == null && tab == 0) {{
+                    onRetry = if (year == null) {{ yearRetry++ }} else if (calendar == null && courseDetail == null && tab == 0) {{
                         entries = entries - kind
                         entriesRetry++
                     }} else null)
                 when {
-                    settings -> SettingsScreen(weekend, vim, ::toggleWeekend, ::toggleVim)
-                    calendar != null -> CalendarScreen(calendar!!, week, selectedDay, weekend,
-                        onMoveWeek = ::moveWeek, onSelectDay = { selectedDay = it }, onToggleWeekend = ::toggleWeekend)
+                    settings -> SettingsScreen(weekend, ::toggleWeekend)
+                    calendar != null -> {
+                        val shown = calendar!!
+                        CalendarScreen(shown, week, selectedDay, weekend, saved,
+                            onToggleSubject = { lesson ->
+                                toggleSaved(SavedSubject(shown.year, lesson.subjectCode, lesson.subject))
+                            },
+                            onMoveWeek = ::moveWeek, onSelectDay = { selectedDay = it })
+                    }
+                    courseDetail != null -> {
+                        val detail = courseDetail!!
+                        val favorite = FavoriteCourse(detail.year, detail.course.code, detail.course.name,
+                            detail.course.degreeType ?: DegreeType.OTHER)
+                        CourseDetailScreen(detail.course, detail.year,
+                            favorite = favorites.any { it.year == favorite.year && it.code == favorite.code },
+                            savedSubjects = saved,
+                            onToggleFavorite = { toggleFavorite(favorite) },
+                            onOpenCalendar = { showCalendar(detail.course.name, detail.year, detail.course) },
+                            onOpenTeaching = { teaching ->
+                                showCalendar(teaching.name, detail.year,
+                                    SearchItem(teaching.code, teaching.name, SearchKind.SUBJECT))
+                            },
+                            onToggleTeaching = { teaching ->
+                                toggleSaved(SavedSubject(detail.year, teaching.code, teaching.name))
+                            })
+                    }
                     tab == 0 -> SearchScreen(
                         years = years, year = year, loadingYears = loadingYears,
                         kind = kind, query = query, results = results, loadingEntries = loadingEntries,
-                        selectedIndex = selectedSearchIndex,
+                        favorites = favorites,
                         onYear = { selected -> year = selected; entries = emptyMap(); query = ""; error = null },
                         onKind = { kind = it; query = ""; error = null },
-                        onQuery = { query = it }, onFocus = { searchFocused = it }, onSelect = ::openItem,
+                        onQuery = { query = it }, onSelect = ::openItem,
+                        onToggleCourseFavorite = { item ->
+                            year?.let { selected -> toggleFavorite(FavoriteCourse(selected.code, item.code,
+                                item.name, item.degreeType ?: DegreeType.OTHER)) }
+                        },
                         onRetryYears = { yearRetry++ }, onRetryEntries = {
                             entries = entries - kind
                             entriesRetry++
                         }
                     )
-                    else -> SavedScreen(
-                        saved = saved, selectedIndex = selectedSavedIndex,
+                    tab == 1 -> SavedScreen(
+                        saved = saved,
                         onOpen = ::openSaved,
                         onCombined = { showCalendar("I miei orari", year?.code.orEmpty(), null, saved) },
                         onAdd = { tab = 0; kind = SearchKind.SUBJECT; query = "" },
-                        onRemove = { store.remove(it); saved = store.saved(); selectedSavedIndex = 0 },
-                        onClear = { store.clear(); saved = emptyList(); selectedSavedIndex = 0 }
+                        onRemove = { store.remove(it); saved = store.saved() },
+                        onClear = { store.clear(); saved = emptyList() }
+                    )
+                    else -> FavoriteCoursesScreen(
+                        favorites = favorites,
+                        onOpen = ::openFavorite,
+                        onRemove = ::toggleFavorite,
+                        onExplore = { tab = 0; kind = SearchKind.COURSE; query = "" }
                     )
                 }
             }

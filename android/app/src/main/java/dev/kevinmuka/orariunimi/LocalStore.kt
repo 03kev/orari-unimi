@@ -12,10 +12,6 @@ class LocalStore(context: Context) {
         get() = preferences.getBoolean("show_weekend", false)
         set(value) { preferences.edit().putBoolean("show_weekend", value).commit() }
 
-    var vimNavigation: Boolean
-        get() = preferences.getBoolean("vim_navigation", true)
-        set(value) { preferences.edit().putBoolean("vim_navigation", value).commit() }
-
     fun saved(): List<SavedSubject> = try {
         val values = JSONArray(preferences.getString("saved_subjects", "[]"))
         (0 until values.length()).mapNotNull { index ->
@@ -40,11 +36,45 @@ class LocalStore(context: Context) {
 
     fun clear() = save(emptyList())
 
+    fun favoriteCourses(): List<FavoriteCourse> = try {
+        val values = JSONArray(preferences.getString("favorite_courses", "[]"))
+        (0 until values.length()).mapNotNull { index ->
+            val value = values.optJSONObject(index) ?: return@mapNotNull null
+            val year = value.optString("year")
+            val code = value.optString("code")
+            val name = value.optString("name")
+            if (year.isBlank() || code.isBlank() || name.isBlank()) null else FavoriteCourse(
+                year, code, name,
+                runCatching { DegreeType.valueOf(value.optString("degreeType")) }.getOrDefault(DegreeType.OTHER)
+            )
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    fun addFavoriteCourse(course: FavoriteCourse) {
+        val items = favoriteCourses()
+        if (items.none { it.year == course.year && it.code == course.code }) saveFavoriteCourses(items + course)
+    }
+
+    fun removeFavoriteCourse(course: FavoriteCourse) = saveFavoriteCourses(
+        favoriteCourses().filterNot { it.year == course.year && it.code == course.code }
+    )
+
     private fun save(items: List<SavedSubject>) {
         val values = JSONArray()
         items.forEach { item ->
             values.put(JSONObject().put("year", item.year).put("code", item.code).put("name", item.name))
         }
         preferences.edit().putString("saved_subjects", values.toString()).commit()
+    }
+
+    private fun saveFavoriteCourses(items: List<FavoriteCourse>) {
+        val values = JSONArray()
+        items.forEach { item ->
+            values.put(JSONObject().put("year", item.year).put("code", item.code)
+                .put("name", item.name).put("degreeType", item.degreeType.name))
+        }
+        preferences.edit().putString("favorite_courses", values.toString()).commit()
     }
 }

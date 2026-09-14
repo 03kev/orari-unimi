@@ -5,6 +5,13 @@ import org.junit.Test
 import java.time.LocalDate
 
 class ScheduleTest {
+    @Test fun portalDegreeLabelsHaveDistinctTypes() {
+        assertEquals(DegreeType.BACHELOR, DegreeType.fromPortal("CDS TRIENNALE"))
+        assertEquals(DegreeType.MASTER, DegreeType.fromPortal("CDS MAGISTRALE"))
+        assertEquals(DegreeType.SINGLE_CYCLE, DegreeType.fromPortal("CDS MAGISTRALE A CICLO UNICO"))
+        assertEquals(DegreeType.OTHER, DegreeType.fromPortal("master"))
+    }
+
     @Test fun searchIgnoresAccentsAndMatchesCode() {
         val items = listOf(
             SearchItem("MAT01", "Matematica", SearchKind.SUBJECT),
