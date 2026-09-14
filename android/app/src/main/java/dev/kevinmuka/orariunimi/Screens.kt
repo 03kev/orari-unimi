@@ -94,7 +94,7 @@ private val lessonColors = listOf(
 @Composable
 fun SearchScreen(
     years: List<AcademicYear>, year: AcademicYear?, loadingYears: Boolean,
-    kind: SearchKind, query: String, results: List<SearchItem>, loadingEntries: Boolean,
+    kind: SearchKind, query: String, results: List<SearchItem>?, loadingEntries: Boolean,
     favorites: List<FavoriteCourse>,
     onYear: (AcademicYear) -> Unit, onKind: (SearchKind) -> Unit,
     onQuery: (String) -> Unit, onSelect: (SearchItem) -> Unit,
@@ -150,9 +150,10 @@ fun SearchScreen(
                     IconButton(onClick = { onQuery("") }) { Icon(Icons.Outlined.Close, contentDescription = "Cancella ricerca") }
                 }} else null
             )
-            if (query.isNotBlank() && !loadingEntries) {
+            if (query.isNotBlank() && !loadingEntries && results != null) {
                 Spacer(Modifier.height(10.dp))
-                Text("${results.size} ${if (results.size == 1) "risultato" else "risultati"}",
+                Text(if (results.size == 40) "Primi 40 risultati · affina la ricerca"
+                    else "${results.size} ${if (results.size == 1) "risultato" else "risultati"}",
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -163,6 +164,9 @@ fun SearchScreen(
             year == null -> EmptyPanel("Nessun anno disponibile", "Controlla la connessione e riprova.",
                 action = "Riprova", onAction = onRetryYears)
             query.isBlank() -> EmptyPanel("Inizia a cercare", "Scrivi il nome o il codice di un ${kind.subtitle.lowercase(italian)}.")
+            results == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.CircularProgressIndicator()
+            }
             results.isEmpty() -> EmptyPanel("Nessun risultato", "Prova con un nome diverso o con il codice.",
                 action = "Ricarica elenco", onAction = onRetryEntries)
             else -> LazyColumn(
@@ -190,27 +194,26 @@ private fun SearchResultCard(item: SearchItem, favorite: Boolean, onClick: () ->
         colors = CardDefaults.cardColors(containerColor = palette?.container
             ?: MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
-        Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = RoundedCornerShape(13.dp), color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.size(44.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(when (item.kind) {
-                        SearchKind.COURSE -> Icons.Outlined.School
-                        SearchKind.TEACHER -> Icons.Outlined.PersonOutline
-                        SearchKind.SUBJECT -> Icons.AutoMirrored.Outlined.MenuBook
-                    }, contentDescription = null, tint = palette?.accent ?: MaterialTheme.colorScheme.primary)
-                }
-            }
-            Spacer(Modifier.width(13.dp))
+        Row(Modifier.fillMaxWidth().padding(start = 15.dp, top = 10.dp, bottom = 10.dp, end = 5.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Icon(when (item.kind) {
+                SearchKind.COURSE -> Icons.Outlined.School
+                SearchKind.TEACHER -> Icons.Outlined.PersonOutline
+                SearchKind.SUBJECT -> Icons.AutoMirrored.Outlined.MenuBook
+            }, contentDescription = null, tint = palette?.accent ?: MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(item.name, style = MaterialTheme.typography.titleMedium,
+                Text(item.name, style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold, color = palette?.content ?: MaterialTheme.colorScheme.onSurface,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(3.dp))
-                Text(item.code, style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (item.degreeType != null) {
-                    Spacer(Modifier.height(5.dp))
-                    DegreeBadge(item.degreeType)
+                Spacer(Modifier.height(2.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text(item.code, style = MaterialTheme.typography.labelMedium,
+                        color = (palette?.content ?: MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = 0.75f))
+                    if (item.degreeType != null) Text("· ${item.degreeType.label}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = palette?.content ?: MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             if (item.kind == SearchKind.COURSE) IconButton(onClick = onToggleFavorite) {

@@ -98,7 +98,8 @@ fun CourseDetailScreen(
                     Spacer(Modifier.width(9.dp))
                     Text(if (favorite) "Salvato nei preferiti" else "Salva corso nei preferiti")
                 }
-                Text("INSEGNAMENTI PER PERCORSO", Modifier.padding(top = 25.dp),
+                Text(if (course.coursePaths.any { it.code.startsWith("catalog:") }) "INSEGNAMENTI"
+                    else "INSEGNAMENTI PER PERCORSO", Modifier.padding(top = 25.dp),
                     style = MaterialTheme.typography.labelMedium, color = palette.accent,
                     fontWeight = FontWeight.Bold)
             }

@@ -19,6 +19,21 @@ class ScheduleTest {
         )
         assertEquals(listOf(items[1]), filterItems(items, "societa"))
         assertEquals(listOf(items[0]), filterItems(items, "mat01"))
+        assertEquals(listOf(items[1]), SearchIndex(items).search("societa"))
+    }
+
+    @Test fun emptyCourseUsesTeachingsFromMatchingCatalogCode() {
+        val course = SearchItem("FBA", "INFORMATICA", SearchKind.COURSE,
+            paths = listOf("FBA-0|insegnamenticomplementari"),
+            coursePaths = listOf(CoursePath("FBA-0|insegnamenticomplementari", "Unico", emptyList())))
+        val candidates = listOf(
+            CourseTeachingCandidate("FBA^FBA-0^FBA-91", CourseTeaching("ECFBA-91_1", "Affective Computing", "")),
+            CourseTeachingCandidate("FAA^FAA-0^FAA-91", CourseTeaching("ECFAA-91_1", "Altro", ""))
+        )
+        val completed = course.withFallbackTeachings(candidates)
+        assertEquals(1, completed.coursePaths.single().teachings.size)
+        assertEquals("ECFBA-91_1", completed.coursePaths.single().teachings.single().code)
+        assertEquals(course.paths, completed.paths)
     }
 
     @Test fun calendarStartsAtNearestWeekAndRespectsWeekend() {

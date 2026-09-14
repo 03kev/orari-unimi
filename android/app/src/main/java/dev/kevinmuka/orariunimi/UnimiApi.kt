@@ -60,6 +60,24 @@ class UnimiApi(private val baseUrl: String = "https://orari-be.divsi.unimi.it/Ag
         }
     }
 
+    fun courseWithTeachings(year: String, course: SearchItem): SearchItem {
+        if (course.coursePaths.any { it.teachings.isNotEmpty() }) return course
+        val values = combo(year, "attivita", "elenco_attivita") as JSONArray
+        val candidates = (0 until values.length()).mapNotNull { index ->
+            val value = values.optJSONObject(index) ?: return@mapNotNull null
+            val combinedCode = value.optString("codice_combinato")
+            if (!combinedCode.contains('^') || combinedCode.substringBefore('^') != course.code) {
+                return@mapNotNull null
+            }
+            val code = value.optString("valore")
+            val name = value.optString("nome_insegnamento").ifBlank { value.optString("label") }
+            if (code.isBlank() || name.isBlank()) return@mapNotNull null
+            CourseTeachingCandidate(combinedCode,
+                CourseTeaching(code, repair(name).trim(), repair(value.optString("docente"))))
+        }
+        return course.withFallbackTeachings(candidates)
+    }
+
     fun lessons(year: String, item: SearchItem): List<Lesson> {
         val fields = mutableListOf<Pair<String, String>>()
         when (item.kind) {

@@ -27,6 +27,7 @@ enum class DegreeType(val label: String) {
 
 data class CourseTeaching(val code: String, val name: String, val teacher: String)
 data class CoursePath(val code: String, val name: String, val teachings: List<CourseTeaching>)
+data class CourseTeachingCandidate(val combinedCode: String, val teaching: CourseTeaching)
 
 data class SearchItem(
     val code: String,
@@ -54,15 +55,31 @@ data class Lesson(
     val cancelled: Boolean
 )
 
-fun filterItems(items: List<SearchItem>, query: String, limit: Int = 40): List<SearchItem> {
-    val terms = normalize(query).split(' ').filter { it.isNotBlank() }
-    if (terms.isEmpty()) return emptyList()
-    return items.asSequence().mapNotNull { item ->
-        val text = normalize("${item.code} ${item.name}")
-        val positions = terms.map { text.indexOf(it) }
-        if (positions.any { it < 0 }) null else item to positions.min()
-    }.sortedWith(compareBy<Pair<SearchItem, Int>> { it.second }.thenBy { normalize(it.first.name) })
-        .take(limit).map { it.first }.toList()
+class SearchIndex(val items: List<SearchItem>) {
+    private data class Entry(val item: SearchItem, val text: String, val name: String)
+    private val entries = items.map { Entry(it, normalize("${it.code} ${it.name}"), normalize(it.name)) }
+
+    fun search(query: String, limit: Int = 40): List<SearchItem> {
+        val terms = normalize(query).split(' ').filter { it.isNotBlank() }
+        if (terms.isEmpty()) return emptyList()
+        return entries.asSequence().mapNotNull { entry ->
+            val positions = terms.map { entry.text.indexOf(it) }
+            if (positions.any { it < 0 }) null else Triple(entry.item, positions.min(), entry.name)
+        }.sortedWith(compareBy<Triple<SearchItem, Int, String>> { it.second }.thenBy { it.third })
+            .take(limit).map { it.first }.toList()
+    }
+}
+
+fun filterItems(items: List<SearchItem>, query: String, limit: Int = 40): List<SearchItem> =
+    SearchIndex(items).search(query, limit)
+
+fun SearchItem.withFallbackTeachings(candidates: List<CourseTeachingCandidate>): SearchItem {
+    if (kind != SearchKind.COURSE || coursePaths.any { it.teachings.isNotEmpty() }) return this
+    val teachings = candidates.asSequence()
+        .filter { it.combinedCode.contains('^') && it.combinedCode.substringBefore('^') == code }
+        .map { it.teaching }.distinctBy { it.code }.sortedBy { normalize(it.name) }.toList()
+    if (teachings.isEmpty()) return this
+    return copy(coursePaths = listOf(CoursePath("catalog:$code", "Insegnamenti disponibili", teachings)))
 }
 
 private fun normalize(value: String): String = Normalizer.normalize(

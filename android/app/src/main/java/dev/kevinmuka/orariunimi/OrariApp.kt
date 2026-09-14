@@ -31,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -38,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
@@ -67,7 +69,7 @@ fun OrariApp() {
     var loadingYears by remember { mutableStateOf(true) }
     var kind by remember { mutableStateOf(SearchKind.COURSE) }
     var query by remember { mutableStateOf("") }
-    var entries by remember { mutableStateOf<Map<SearchKind, List<SearchItem>>>(emptyMap()) }
+    var entries by remember { mutableStateOf<Map<SearchKind, SearchIndex>>(emptyMap()) }
     var entriesRetry by remember { mutableIntStateOf(0) }
     var loadingEntries by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -99,7 +101,8 @@ fun OrariApp() {
         loadingEntries = true
         try {
             val fetched = withContext(Dispatchers.IO) { api.entries(kind, currentYear.code) }
-            entries = entries + (kind to fetched)
+            val index = withContext(Dispatchers.Default) { SearchIndex(fetched) }
+            entries = entries + (kind to index)
             error = null
         } catch (cause: Exception) {
             error = cause.message ?: "Impossibile caricare l'elenco."
@@ -108,7 +111,13 @@ fun OrariApp() {
         }
     }
 
-    val results = filterItems(entries[kind].orEmpty(), query)
+    val searchIndex = entries[kind]
+    val results by produceState<List<SearchItem>?>(null, query, searchIndex) {
+        if (query.isNotBlank() && searchIndex != null) {
+            delay(120)
+            value = withContext(Dispatchers.Default) { searchIndex.search(query) }
+        }
+    }
 
     fun toggleWeekend() {
         weekend = !weekend
@@ -157,8 +166,22 @@ fun OrariApp() {
 
     fun openItem(item: SearchItem) {
         val currentYear = year ?: return
-        if (item.kind == SearchKind.COURSE) courseDetail = CourseDetailData(currentYear.code, item)
-        else showCalendar(item.name, currentYear.code, item)
+        if (item.kind != SearchKind.COURSE) {
+            showCalendar(item.name, currentYear.code, item)
+            return
+        }
+        scope.launch {
+            busy = true
+            error = null
+            try {
+                val course = withContext(Dispatchers.IO) { api.courseWithTeachings(currentYear.code, item) }
+                courseDetail = CourseDetailData(currentYear.code, course)
+            } catch (cause: Exception) {
+                error = cause.message ?: "Impossibile aprire il corso."
+            } finally {
+                busy = false
+            }
+        }
     }
 
     fun openFavorite(favorite: FavoriteCourse) {
@@ -166,12 +189,13 @@ fun OrariApp() {
             busy = true
             error = null
             try {
-                val cached = if (favorite.year == year?.code) entries[SearchKind.COURSE]
+                val cached = if (favorite.year == year?.code) entries[SearchKind.COURSE]?.items
                     ?.firstOrNull { it.code == favorite.code } else null
                 val course = cached ?: withContext(Dispatchers.IO) {
                     api.entries(SearchKind.COURSE, favorite.year).firstOrNull { it.code == favorite.code }
                 } ?: throw IllegalStateException("Il corso non è più disponibile per l'anno ${favorite.year}.")
-                courseDetail = CourseDetailData(favorite.year, course)
+                val complete = withContext(Dispatchers.IO) { api.courseWithTeachings(favorite.year, course) }
+                courseDetail = CourseDetailData(favorite.year, complete)
             } catch (cause: Exception) {
                 error = cause.message ?: "Impossibile aprire il corso preferito."
             } finally {
