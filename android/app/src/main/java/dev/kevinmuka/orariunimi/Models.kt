@@ -75,11 +75,20 @@ fun filterItems(items: List<SearchItem>, query: String, limit: Int = 40): List<S
 
 fun SearchItem.withFallbackTeachings(candidates: List<CourseTeachingCandidate>): SearchItem {
     if (kind != SearchKind.COURSE || coursePaths.any { it.teachings.isNotEmpty() }) return this
-    val teachings = candidates.asSequence()
-        .filter { it.combinedCode.contains('^') && it.combinedCode.substringBefore('^') == code }
-        .map { it.teaching }.distinctBy { it.code }.sortedBy { normalize(it.name) }.toList()
-    if (teachings.isEmpty()) return this
-    return copy(coursePaths = listOf(CoursePath("catalog:$code", "Insegnamenti disponibili", teachings)))
+    val matching = candidates.filter {
+        val parts = it.combinedCode.split('^')
+        parts.size >= 3 && parts[0] == code
+    }
+    if (matching.isEmpty()) return this
+    val byPath = matching.groupBy { it.combinedCode.split('^')[1] }
+    val originalByBase = coursePaths.groupBy { it.code.substringBefore('|') }
+    val rebuilt = byPath.map { (pathCode, values) ->
+        val original = originalByBase[pathCode].orEmpty()
+        val label = if (original.size == 1) original.single().name else "Insegnamenti disponibili"
+        CoursePath("catalog:$pathCode", label, values.map { it.teaching }
+            .distinctBy { it.code }.sortedBy { normalize(it.name) })
+    }.sortedBy { normalize(it.name) }
+    return copy(coursePaths = rebuilt)
 }
 
 private fun normalize(value: String): String = Normalizer.normalize(

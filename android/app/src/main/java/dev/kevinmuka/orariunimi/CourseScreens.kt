@@ -72,7 +72,8 @@ fun CourseDetailScreen(
 ) {
     val type = course.degreeType ?: DegreeType.OTHER
     val palette = degreePalette(type)
-    val count = course.coursePaths.flatMap { it.teachings }.distinctBy { it.code }.size
+    val visiblePaths = course.coursePaths.filter { it.teachings.isNotEmpty() }
+    val count = visiblePaths.flatMap { it.teachings }.distinctBy { it.code }.size
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 30.dp),
@@ -109,7 +110,7 @@ fun CourseDetailScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        course.coursePaths.forEachIndexed { pathIndex, path ->
+        visiblePaths.forEachIndexed { pathIndex, path ->
             item(key = "path:$pathIndex:${path.code}") {
                 Text(path.name.ifBlank { "Percorso" }, Modifier.padding(top = 9.dp, bottom = 3.dp),
                     style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)

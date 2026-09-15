@@ -3,6 +3,7 @@ package dev.kevinmuka.orariunimi
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.LocalDate
+import java.time.YearMonth
 
 class ScheduleTest {
     @Test fun portalDegreeLabelsHaveDistinctTypes() {
@@ -34,6 +35,22 @@ class ScheduleTest {
         assertEquals(1, completed.coursePaths.single().teachings.size)
         assertEquals("ECFBA-91_1", completed.coursePaths.single().teachings.single().code)
         assertEquals(course.paths, completed.paths)
+    }
+
+    @Test fun fallbackKeepsAnUnambiguousCoursePathName() {
+        val course = SearchItem("FBA", "INFORMATICA", SearchKind.COURSE,
+            coursePaths = listOf(CoursePath("FBA-0|insegnamenticomplementari", "Unico", emptyList())))
+        val completed = course.withFallbackTeachings(listOf(
+            CourseTeachingCandidate("FBA^FBA-0^FBA-91", CourseTeaching("ECFBA-91_1", "Affective Computing", ""))
+        ))
+        assertEquals("Unico", completed.coursePaths.single().name)
+    }
+
+    @Test fun monthGridStartsOnMondayAndContainsSixWeeks() {
+        val dates = monthDates(YearMonth.of(2026, 9))
+        assertEquals(42, dates.size)
+        assertEquals(LocalDate.of(2026, 9, 1), dates[1])
+        assertEquals(LocalDate.of(2026, 9, 30), dates[30])
     }
 
     @Test fun calendarStartsAtNearestWeekAndRespectsWeekend() {

@@ -304,7 +304,10 @@ fun OrariApp() {
                             onToggleSubject = { lesson ->
                                 toggleSaved(SavedSubject(shown.year, lesson.subjectCode, lesson.subject))
                             },
-                            onMoveWeek = ::moveWeek, onSelectDay = { selectedDay = it })
+                            onMoveWeek = ::moveWeek, onSelectDay = { day ->
+                                week = startOfWeek(day)
+                                selectedDay = day
+                            })
                     }
                     courseDetail != null -> {
                         val detail = courseDetail!!

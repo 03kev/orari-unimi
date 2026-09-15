@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -79,6 +80,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
@@ -354,11 +356,18 @@ fun CalendarScreen(
     savedSubjects: List<SavedSubject>, onToggleSubject: (Lesson) -> Unit,
     onMoveWeek: (Long) -> Unit, onSelectDay: (LocalDate) -> Unit
 ) {
+    var showMonth by remember { mutableStateOf(false) }
     val days = (0 until if (weekend) 7 else 5).map { week.plusDays(it.toLong()) }
     val visibleLessons = calendar.lessons.filter { it.date == selectedDay }
+    if (showMonth) MonthCalendarDialog(
+        selectedDay = selectedDay,
+        lessons = calendar.lessons,
+        onDismiss = { showMonth = false },
+        onSelectDay = { day -> onSelectDay(day); showMonth = false }
+    )
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 9.dp)) {
-            WeekHeader(week, onMoveWeek)
+            WeekHeader(week, onMoveWeek, onOpenMonth = { showMonth = true })
             Spacer(Modifier.height(14.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(days) { day ->
@@ -401,7 +410,7 @@ fun CalendarScreen(
 }
 
 @Composable
-private fun WeekHeader(week: LocalDate, onMoveWeek: (Long) -> Unit) {
+private fun WeekHeader(week: LocalDate, onMoveWeek: (Long) -> Unit, onOpenMonth: () -> Unit) {
     var drag by remember(week) { mutableFloatStateOf(0f) }
     Row(
         Modifier.fillMaxWidth().pointerInput(week) {
@@ -421,8 +430,106 @@ private fun WeekHeader(week: LocalDate, onMoveWeek: (Long) -> Unit) {
             Text("${week.format(dateShort)} – ${week.plusDays(6).format(dateShort)}",
                 style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         }
+        IconButton(onClick = onOpenMonth) {
+            Icon(Icons.Outlined.CalendarMonth, "Apri calendario mensile")
+        }
         IconButton(onClick = { onMoveWeek(-1) }) { Icon(Icons.Outlined.ChevronLeft, "Settimana precedente") }
         IconButton(onClick = { onMoveWeek(1) }) { Icon(Icons.Outlined.ChevronRight, "Settimana successiva") }
+    }
+}
+
+@Composable
+private fun MonthCalendarDialog(
+    selectedDay: LocalDate,
+    lessons: List<Lesson>,
+    onDismiss: () -> Unit,
+    onSelectDay: (LocalDate) -> Unit
+) {
+    var month by remember(selectedDay) { mutableStateOf(YearMonth.from(selectedDay)) }
+    var drag by remember(month) { mutableFloatStateOf(0f) }
+    val lessonDays = remember(lessons) { lessons.groupingBy { it.date }.eachCount() }
+    val monthTitle = remember(month) {
+        month.format(DateTimeFormatter.ofPattern("MMMM yyyy", italian))
+            .replaceFirstChar { it.titlecase(italian) }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { month = month.minusMonths(1) }) {
+                    Icon(Icons.Outlined.ChevronLeft, "Mese precedente")
+                }
+                Text(monthTitle, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                IconButton(onClick = { month = month.plusMonths(1) }) {
+                    Icon(Icons.Outlined.ChevronRight, "Mese successivo")
+                }
+            }
+        },
+        text = {
+            Column(Modifier.fillMaxWidth().pointerInput(month) {
+                detectHorizontalDragGestures(
+                    onHorizontalDrag = { change, amount -> drag += amount; change.consume() },
+                    onDragEnd = {
+                        if (drag > 70f) month = month.minusMonths(1)
+                        else if (drag < -70f) month = month.plusMonths(1)
+                        drag = 0f
+                    }
+                )
+            }) {
+                Row(Modifier.fillMaxWidth()) {
+                    listOf("L", "M", "M", "G", "V", "S", "D").forEach { label ->
+                        Box(Modifier.weight(1f).height(30.dp), contentAlignment = Alignment.Center) {
+                            Text(label, style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                monthDates(month).chunked(7).forEach { row ->
+                    Row(Modifier.fillMaxWidth()) {
+                        row.forEach { day -> MonthDay(day, selectedDay, lessonDays[day] ?: 0, onSelectDay) }
+                    }
+                }
+                Text("Scorri lateralmente per cambiare mese.", Modifier.padding(top = 10.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Chiudi") } }
+    )
+}
+
+@Composable
+private fun RowScope.MonthDay(
+    day: LocalDate?, selectedDay: LocalDate, lessonCount: Int, onSelectDay: (LocalDate) -> Unit
+) {
+    if (day == null) {
+        Spacer(Modifier.weight(1f).height(42.dp))
+        return
+    }
+    val selected = day == selectedDay
+    Surface(
+        onClick = { onSelectDay(day) },
+        shape = CircleShape,
+        color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+        modifier = Modifier.weight(1f).height(42.dp)
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+            Box(Modifier.size(4.dp).background(if (lessonCount > 0) {
+                if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
+            } else Color.Transparent, CircleShape))
+        }
+    }
+}
+
+fun monthDates(month: YearMonth): List<LocalDate?> {
+    val leading = month.atDay(1).dayOfWeek.value - 1
+    return List(42) { index ->
+        val day = index - leading + 1
+        if (day in 1..month.lengthOfMonth()) month.atDay(day) else null
     }
 }
 

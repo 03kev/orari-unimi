@@ -8,6 +8,8 @@ etichetta; aprendo un corso si vedono gli insegnamenti di ogni percorso e si pu�
 salvare il corso nei Preferiti. Dal calendario di un corso o docente si può
 aggiungere direttamente un insegnamento ai propri orari. La visibilità del
 weekend si sceglie nelle Preferenze e resta salvata.
+Dal calendario settimanale si può aprire la vista mensile, scorrere tra i mesi e
+saltare direttamente a una data.
 Se il record di un corso non elenca ancora gli insegnamenti, l'app cerca quelli
 associati al suo codice nell'elenco generale pubblicato dal portale per lo
 stesso anno accademico.
