@@ -1,4 +1,4 @@
-package dev.kevinmuka.orariunimi
+package app.orariunimi
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement

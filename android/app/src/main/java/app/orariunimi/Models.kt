@@ -1,4 +1,4 @@
-package dev.kevinmuka.orariunimi
+package app.orariunimi
 
 import java.text.Normalizer
 import java.time.LocalDate

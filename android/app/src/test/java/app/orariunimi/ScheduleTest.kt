@@ -1,7 +1,8 @@
-package dev.kevinmuka.orariunimi
+package app.orariunimi
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.nio.file.Files
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -53,11 +54,35 @@ class ScheduleTest {
         assertEquals(LocalDate.of(2026, 9, 30), dates[30])
     }
 
-    @Test fun calendarStartsAtNearestWeekAndRespectsWeekend() {
+    @Test fun responseCacheExpiresAndPrunesOldEntries() {
+        val directory = Files.createTempDirectory("orari-cache-test").toFile()
+        var now = 1_000L
+        try {
+            val cache = ResponseCache(directory, maxBytes = 10, clockMillis = { now })
+            cache.write("first", "123456")
+            assertEquals("123456", cache.read("first", 100))
+            assertEquals(1_000L, cache.readEntry("first", 100)?.storedAtMillis)
+            now = 1_200L
+            assertEquals(null, cache.read("first", 100))
+            assertEquals("123456", cache.read("first", 300))
+            now = 2_000L
+            cache.write("second", "abcdef")
+            assertEquals(null, cache.read("first", 10_000))
+            assertEquals("abcdef", cache.read("second", 100))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun calendarOpensOnTodayAndKeepsSelectionVisibleWithoutWeekend() {
+        val tuesday = LocalDate.of(2026, 9, 15)
         val saturday = LocalDate.of(2026, 9, 19)
+        assertEquals(tuesday, openingDay(tuesday, false))
+        assertEquals(saturday, openingDay(saturday, true))
+        assertEquals(LocalDate.of(2026, 9, 18), openingDay(saturday, false))
+
         val lesson = Lesson("1", "ABC", "Lezione", saturday, "09:00", "11:00", "", "", "", "", false)
-        val week = closestWeek(listOf(lesson), LocalDate.of(2026, 9, 14))
-        assertEquals(LocalDate.of(2026, 9, 14), week)
+        val week = startOfWeek(tuesday)
         assertEquals(week, preferredDay(listOf(lesson), week, false))
         assertEquals(saturday, preferredDay(listOf(lesson), week, true))
     }

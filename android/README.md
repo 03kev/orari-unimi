@@ -9,7 +9,7 @@ salvare il corso nei Preferiti. Dal calendario di un corso o docente si può
 aggiungere direttamente un insegnamento ai propri orari. La visibilità del
 weekend si sceglie nelle Preferenze e resta salvata.
 Dal calendario settimanale si può aprire la vista mensile, scorrere tra i mesi e
-saltare direttamente a una data.
+saltare direttamente a una data oppure tornare a oggi.
 Se il record di un corso non elenca ancora gli insegnamenti, l'app cerca quelli
 associati al suo codice nell'elenco generale pubblicato dal portale per lo
 stesso anno accademico.
@@ -17,6 +17,12 @@ stesso anno accademico.
 La ricerca e gli orari richiedono una connessione Internet. Insegnamenti, corsi
 preferiti e preferenze sono memorizzati solo nell'app sul dispositivo; non si
 sincronizzano automaticamente con la versione per terminale.
+I calendari già scaricati vengono mostrati subito e aggiornati in background
+ogni volta che vengono aperti. Se il portale non risponde, l'app può usare un
+orario salvato da non più di 24 ore e indica chiaramente data e ora dei dati
+offline. I cataloghi restano validi per 12 ore e possono essere recuperati fino
+a sette giorni in caso di errore del portale. La cache è limitata a 8 MB ed è
+gestita automaticamente da Android.
 
 ## Compilazione
 

@@ -1,4 +1,4 @@
-package dev.kevinmuka.orariunimi
+package app.orariunimi
 
 import android.content.res.Configuration
 import androidx.compose.material3.MaterialTheme

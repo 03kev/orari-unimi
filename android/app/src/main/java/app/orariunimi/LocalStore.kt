@@ -1,4 +1,4 @@
-package dev.kevinmuka.orariunimi
+package app.orariunimi
 
 import android.content.Context
 import org.json.JSONArray

@@ -1,4 +1,4 @@
-package dev.kevinmuka.orariunimi
+package app.orariunimi
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
@@ -42,13 +42,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.time.DayOfWeek
 import java.time.LocalDate
-import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
-import kotlin.math.abs
 
-data class CalendarData(val title: String, val lessons: List<Lesson>, val year: String, val source: SearchItem?)
+data class CalendarData(
+    val title: String,
+    val lessons: List<Lesson>,
+    val year: String,
+    val source: SearchItem?,
+    val updatedAtMillis: Long,
+    val offline: Boolean,
+    val combinedSubjects: List<SavedSubject>? = null
+)
 data class CourseDetailData(val year: String, val course: SearchItem)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,7 +63,9 @@ data class CourseDetailData(val year: String, val course: SearchItem)
 fun OrariApp() {
     val context = LocalContext.current
     val store = remember(context) { LocalStore(context.applicationContext) }
-    val api = remember { UnimiApi() }
+    val api = remember(context) {
+        UnimiApi(cache = ResponseCache(File(context.cacheDir, "orari-responses")))
+    }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var tab by remember { mutableIntStateOf(0) }
@@ -73,6 +82,8 @@ fun OrariApp() {
     var entriesRetry by remember { mutableIntStateOf(0) }
     var loadingEntries by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    var calendarRefreshing by remember { mutableStateOf(false) }
+    var calendarLoadId by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var saved by remember { mutableStateOf(store.saved()) }
     var favorites by remember { mutableStateOf(store.favoriteCourses()) }
@@ -145,21 +156,60 @@ fun OrariApp() {
     }
 
     fun showCalendar(title: String, yearCode: String, source: SearchItem?, combined: List<SavedSubject>? = null) {
+        calendarLoadId++
+        val loadId = calendarLoadId
         scope.launch {
-            busy = true
             error = null
-            try {
-                val lessons = withContext(Dispatchers.IO) {
-                    if (combined != null) api.savedLessons(combined) else api.lessons(yearCode, requireNotNull(source))
+            val sameCalendar = calendar?.let {
+                it.title == title && it.year == yearCode && it.source?.kind == source?.kind &&
+                    it.source?.code == source?.code && it.combinedSubjects == combined
+            } == true
+            busy = !sameCalendar
+            calendarRefreshing = true
+
+            fun show(snapshot: ScheduleSnapshot, offline: Boolean) {
+                if (loadId != calendarLoadId) return
+                val current = calendar
+                val same = current?.let {
+                    it.title == title && it.year == yearCode && it.source?.kind == source?.kind &&
+                        it.source?.code == source?.code && it.combinedSubjects == combined
+                } == true
+                if (!same) {
+                    val initialDay = openingDay(LocalDate.now(), weekend)
+                    week = startOfWeek(initialDay)
+                    selectedDay = initialDay
                 }
-                val initialWeek = closestWeek(lessons)
-                week = initialWeek
-                selectedDay = preferredDay(lessons, initialWeek, weekend)
-                calendar = CalendarData(title, lessons, yearCode, source)
-            } catch (cause: Exception) {
-                error = cause.message ?: "Impossibile recuperare le lezioni."
-            } finally {
+                calendar = CalendarData(title, snapshot.lessons, yearCode, source,
+                    snapshot.updatedAtMillis, offline, combined)
+            }
+
+            val cached = withContext(Dispatchers.IO) {
+                runCatching {
+                    if (combined != null) api.cachedSavedLessons(combined)
+                    else api.cachedLessons(yearCode, requireNotNull(source))
+                }.getOrNull()
+            }
+            if (cached != null && loadId == calendarLoadId) {
+                show(cached, offline = false)
                 busy = false
+            }
+
+            try {
+                val fresh = withContext(Dispatchers.IO) {
+                    if (combined != null) api.refreshSavedLessons(combined)
+                    else api.refreshLessons(yearCode, requireNotNull(source))
+                }
+                show(fresh, offline = false)
+            } catch (cause: Exception) {
+                if (loadId == calendarLoadId) {
+                    if (cached != null) show(cached, offline = true)
+                    else error = cause.message ?: "Impossibile recuperare le lezioni."
+                }
+            } finally {
+                if (loadId == calendarLoadId) {
+                    busy = false
+                    calendarRefreshing = false
+                }
             }
         }
     }
@@ -209,6 +259,9 @@ fun OrariApp() {
     )
 
     fun goBack() {
+        calendarLoadId++
+        calendarRefreshing = false
+        busy = false
         when {
             calendar != null -> calendar = null
             courseDetail != null -> courseDetail = null
@@ -301,9 +354,12 @@ fun OrariApp() {
                     calendar != null -> {
                         val shown = calendar!!
                         CalendarScreen(shown, week, selectedDay, weekend, saved,
+                            refreshing = calendarRefreshing,
                             onToggleSubject = { lesson ->
                                 toggleSaved(SavedSubject(shown.year, lesson.subjectCode, lesson.subject))
                             },
+                            onRefresh = { showCalendar(shown.title, shown.year, shown.source,
+                                shown.combinedSubjects) },
                             onMoveWeek = ::moveWeek, onSelectDay = { day ->
                                 week = startOfWeek(day)
                                 selectedDay = day
@@ -365,13 +421,9 @@ fun OrariApp() {
 
 fun startOfWeek(day: LocalDate): LocalDate = day.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
 
-fun closestWeek(lessons: List<Lesson>, today: LocalDate = LocalDate.now()): LocalDate {
-    val current = startOfWeek(today)
-    if (lessons.isEmpty() || lessons.any { !it.date.isBefore(current) && it.date.isBefore(current.plusWeeks(1)) }) return current
-    val closest = lessons.minWith(compareBy<Lesson> { abs(ChronoUnit.DAYS.between(today, it.date)) }
-        .thenByDescending { it.date })
-    return startOfWeek(closest.date)
-}
+fun openingDay(today: LocalDate, weekend: Boolean): LocalDate =
+    if (weekend || today.dayOfWeek.value <= DayOfWeek.FRIDAY.value) today
+    else startOfWeek(today).plusDays(4)
 
 fun preferredDay(lessons: List<Lesson>, week: LocalDate, weekend: Boolean): LocalDate =
     lessons.firstOrNull { !it.date.isBefore(week) && it.date.isBefore(week.plusDays(if (weekend) 7 else 5)) }?.date

@@ -1,4 +1,4 @@
-package dev.kevinmuka.orariunimi
+package app.orariunimi
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -35,6 +35,7 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.PersonOutline
@@ -47,6 +48,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
@@ -79,8 +81,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
@@ -88,6 +92,8 @@ import java.util.Locale
 private val italian = Locale.ITALIAN
 private val dateLong = DateTimeFormatter.ofPattern("EEEE d MMMM", italian)
 private val dateShort = DateTimeFormatter.ofPattern("d MMM", italian)
+private val updateTime = DateTimeFormatter.ofPattern("HH:mm", italian)
+private val updateDateTime = DateTimeFormatter.ofPattern("d MMM, HH:mm", italian)
 private val lessonColors = listOf(
     Color(0xFF526FCC), Color(0xFF008A83), Color(0xFFB15D63), Color(0xFF927224),
     Color(0xFF8C68C2), Color(0xFF3C82B4), Color(0xFFB56D3C), Color(0xFF5F8A50)
@@ -354,6 +360,7 @@ private fun SettingCard(icon: androidx.compose.ui.graphics.vector.ImageVector, t
 fun CalendarScreen(
     calendar: CalendarData, week: LocalDate, selectedDay: LocalDate, weekend: Boolean,
     savedSubjects: List<SavedSubject>, onToggleSubject: (Lesson) -> Unit,
+    refreshing: Boolean, onRefresh: () -> Unit,
     onMoveWeek: (Long) -> Unit, onSelectDay: (LocalDate) -> Unit
 ) {
     var showMonth by remember { mutableStateOf(false) }
@@ -375,11 +382,8 @@ fun CalendarScreen(
                         count = calendar.lessons.count { it.date == day }, onClick = { onSelectDay(day) })
                 }
             }
-            Spacer(Modifier.height(10.dp))
-            Text("${calendar.lessons.size} lezioni nell’anno" +
-                if (weekend) " · scorri i giorni per il weekend" else "",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(6.dp))
+            CalendarFreshness(calendar, weekend, refreshing, onRefresh)
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainer)
         LazyColumn(
@@ -405,6 +409,45 @@ fun CalendarScreen(
                     saved = savedSubjects.any { it.year == calendar.year && it.code == lesson.subjectCode },
                     onToggleSave = if (canSave) {{ onToggleSubject(lesson) }} else null)
             }
+        }
+    }
+}
+
+@Composable
+private fun CalendarFreshness(
+    calendar: CalendarData, weekend: Boolean, refreshing: Boolean, onRefresh: () -> Unit
+) {
+    val updated = remember(calendar.updatedAtMillis) {
+        Instant.ofEpochMilli(calendar.updatedAtMillis).atZone(ZoneId.systemDefault())
+    }
+    val timestamp = if (updated.toLocalDate() == LocalDate.now()) {
+        "alle ${updated.format(updateTime)}"
+    } else {
+        "il ${updated.format(updateDateTime)}"
+    }
+    val status = when {
+        calendar.offline -> "Dati offline · aggiornati $timestamp"
+        refreshing -> "Aggiornato $timestamp · controllo in corso"
+        else -> "Aggiornato $timestamp"
+    }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (calendar.offline) {
+            Icon(Icons.Outlined.CloudOff, contentDescription = null, Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.error)
+            Spacer(Modifier.width(6.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text("${calendar.lessons.size} lezioni nell’anno" +
+                if (weekend) " · scorri i giorni per il weekend" else "",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(status, style = MaterialTheme.typography.labelSmall,
+                color = if (calendar.offline) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        IconButton(onClick = onRefresh, enabled = !refreshing, modifier = Modifier.size(40.dp)) {
+            if (refreshing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            else Icon(Icons.Outlined.Refresh, contentDescription = "Aggiorna calendario")
         }
     }
 }
@@ -490,10 +533,10 @@ private fun MonthCalendarDialog(
                         row.forEach { day -> MonthDay(day, selectedDay, lessonDays[day] ?: 0, onSelectDay) }
                     }
                 }
-                Text("Scorri lateralmente per cambiare mese.", Modifier.padding(top = 10.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        },
+        dismissButton = {
+            TextButton(onClick = { onSelectDay(LocalDate.now()) }) { Text("Oggi") }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Chiudi") } }
     )
@@ -638,10 +681,13 @@ private fun EmptyPanel(title: String, description: String, action: String? = nul
                 }
             }
             Spacer(Modifier.height(15.dp))
-            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(Modifier.height(5.dp))
-            Text(description, style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(description, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             if (action != null && onAction != null) {
                 Spacer(Modifier.height(14.dp))
                 FilledTonalButton(onClick = onAction) { Text(action) }

@@ -1,4 +1,4 @@
-package dev.kevinmuka.orariunimi
+package app.orariunimi
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity

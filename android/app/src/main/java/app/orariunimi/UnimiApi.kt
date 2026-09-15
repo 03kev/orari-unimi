@@ -1,4 +1,4 @@
-package dev.kevinmuka.orariunimi
+package app.orariunimi
 
 import org.json.JSONArray
 import org.json.JSONObject
@@ -10,9 +10,22 @@ import java.nio.charset.StandardCharsets
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
+data class ScheduleSnapshot(val lessons: List<Lesson>, val updatedAtMillis: Long)
+
 /** The same public AgendaWeb endpoints and response fields used by the Go client. */
-class UnimiApi(private val baseUrl: String = "https://orari-be.divsi.unimi.it/AgendaWeb/Orario/") {
+class UnimiApi(
+    private val baseUrl: String = "https://orari-be.divsi.unimi.it/AgendaWeb/Orario/",
+    private val cache: ResponseCache? = null
+) {
     private val dateFormat = DateTimeFormatter.ofPattern("dd-MM-yyyy")
+
+    private companion object {
+        const val CATALOG_MAX_AGE = 12L * 60 * 60 * 1000
+        const val CATALOG_STALE_MAX_AGE = 7L * 24 * 60 * 60 * 1000
+        const val SCHEDULE_OFFLINE_MAX_AGE = 24L * 60 * 60 * 1000
+    }
+
+    private data class ScheduleRequest(val path: String, val encoded: String, val cacheKey: String)
 
     fun years(): List<AcademicYear> {
         val years = combo("1", null, "anni_accademici_ec") as JSONObject
@@ -78,7 +91,39 @@ class UnimiApi(private val baseUrl: String = "https://orari-be.divsi.unimi.it/Ag
         return course.withFallbackTeachings(candidates)
     }
 
-    fun lessons(year: String, item: SearchItem): List<Lesson> {
+    fun cachedLessons(year: String, item: SearchItem): ScheduleSnapshot? {
+        val request = scheduleRequest(year, item)
+        val entry = cache?.readEntry(request.cacheKey, SCHEDULE_OFFLINE_MAX_AGE) ?: return null
+        return ScheduleSnapshot(parseLessons(entry.value), entry.storedAtMillis)
+    }
+
+    fun refreshLessons(year: String, item: SearchItem): ScheduleSnapshot {
+        val request = scheduleRequest(year, item)
+        val response = fetch(request.path, request.encoded, get = false)
+        val storedAt = cache?.write(request.cacheKey, response) ?: System.currentTimeMillis()
+        return ScheduleSnapshot(parseLessons(response), storedAt)
+    }
+
+    fun cachedSavedLessons(saved: List<SavedSubject>): ScheduleSnapshot? {
+        if (saved.isEmpty()) return ScheduleSnapshot(emptyList(), System.currentTimeMillis())
+        val snapshots = saved.map { subject ->
+            cachedLessons(subject.year, SearchItem(subject.code, subject.name, SearchKind.SUBJECT)) ?: return null
+        }
+        return mergeSnapshots(snapshots)
+    }
+
+    fun refreshSavedLessons(saved: List<SavedSubject>): ScheduleSnapshot = mergeSnapshots(saved.map { subject ->
+        refreshLessons(subject.year, SearchItem(subject.code, subject.name, SearchKind.SUBJECT))
+    })
+
+    private fun mergeSnapshots(snapshots: List<ScheduleSnapshot>): ScheduleSnapshot {
+        val lessons = snapshots.flatMap { it.lessons }
+            .distinctBy { it.id.ifBlank { "${it.subjectCode}|${it.date}|${it.start}|${it.room}" } }
+            .sortedWith(compareBy<Lesson> { it.date }.thenBy { it.start }.thenBy { it.subject })
+        return ScheduleSnapshot(lessons, snapshots.minOfOrNull { it.updatedAtMillis } ?: System.currentTimeMillis())
+    }
+
+    private fun scheduleRequest(year: String, item: SearchItem): ScheduleRequest {
         val fields = mutableListOf<Pair<String, String>>()
         when (item.kind) {
             SearchKind.COURSE -> {
@@ -101,7 +146,12 @@ class UnimiApi(private val baseUrl: String = "https://orari-be.divsi.unimi.it/Ag
         fields += "anno" to year
         fields += "date" to "01-08-$year"
         fields += "all_events" to "1"
-        val response = JSONObject(request("grid_call.php", fields))
+        val encoded = encode(fields)
+        return ScheduleRequest("grid_call.php", encoded, cacheKey("grid_call.php", encoded, get = false))
+    }
+
+    private fun parseLessons(body: String): List<Lesson> {
+        val response = JSONObject(body)
         val cells = response.optJSONArray("celle") ?: JSONArray()
         return (0 until cells.length()).mapNotNull { index ->
             val cell = cells.optJSONObject(index) ?: return@mapNotNull null
@@ -125,11 +175,6 @@ class UnimiApi(private val baseUrl: String = "https://orari-be.divsi.unimi.it/Ag
         }.sortedWith(compareBy<Lesson> { it.date }.thenBy { it.start }.thenBy { it.subject })
     }
 
-    fun savedLessons(saved: List<SavedSubject>): List<Lesson> = saved.flatMap { subject ->
-        lessons(subject.year, SearchItem(subject.code, subject.name, SearchKind.SUBJECT))
-    }.distinctBy { it.id.ifBlank { "${it.subjectCode}|${it.date}|${it.start}|${it.room}" } }
-        .sortedWith(compareBy<Lesson> { it.date }.thenBy { it.start }.thenBy { it.subject })
-
     private fun combo(year: String, page: String?, variable: String): Any {
         val fields = mutableListOf("sw" to "ec_", "aa" to year)
         if (page != null) fields += "page" to page
@@ -138,9 +183,24 @@ class UnimiApi(private val baseUrl: String = "https://orari-be.divsi.unimi.it/Ag
     }
 
     private fun request(path: String, fields: List<Pair<String, String>>, get: Boolean = false): String {
-        val encoded = fields.joinToString("&") { (key, value) ->
-            "${URLEncoder.encode(key, "UTF-8")}=${URLEncoder.encode(value, "UTF-8")}"
+        val encoded = encode(fields)
+        val cacheKey = cacheKey(path, encoded, get)
+        cache?.read(cacheKey, CATALOG_MAX_AGE)?.let { return it }
+        return try {
+            fetch(path, encoded, get).also { cache?.write(cacheKey, it) }
+        } catch (cause: Exception) {
+            cache?.read(cacheKey, CATALOG_STALE_MAX_AGE) ?: throw cause
         }
+    }
+
+    private fun encode(fields: List<Pair<String, String>>): String = fields.joinToString("&") { (key, value) ->
+        "${URLEncoder.encode(key, "UTF-8")}=${URLEncoder.encode(value, "UTF-8")}"
+    }
+
+    private fun cacheKey(path: String, encoded: String, get: Boolean): String =
+        "${if (get) "GET" else "POST"}|$baseUrl$path|$encoded"
+
+    private fun fetch(path: String, encoded: String, get: Boolean): String {
         val connection = URL(baseUrl + path + if (get) "?$encoded" else "").openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 30_000

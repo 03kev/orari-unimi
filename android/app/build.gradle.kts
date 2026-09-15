@@ -14,15 +14,15 @@ val releaseCredentials = Properties().apply {
 val hasReleaseSigning = releaseCredentialsFile.isFile && releaseKeystoreFile.isFile
 
 android {
-    namespace = "dev.kevinmuka.orariunimi"
+    namespace = "app.orariunimi"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "dev.kevinmuka.orariunimi"
+        applicationId = "app.orariunimi"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.0.2"
+        versionCode = 5
+        versionName = "1.0.3"
     }
 
     signingConfigs {
