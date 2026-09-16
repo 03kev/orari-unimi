@@ -60,7 +60,7 @@ data class CourseDetailData(val year: String, val course: SearchItem)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OrariApp() {
+fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     val context = LocalContext.current
     val store = remember(context) { LocalStore(context.applicationContext) }
     val api = remember(context) {
@@ -68,7 +68,7 @@ fun OrariApp() {
     }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(initialTab) }
     var settings by remember { mutableStateOf(false) }
     var calendar by remember { mutableStateOf<CalendarData?>(null) }
     var courseDetail by remember { mutableStateOf<CourseDetailData?>(null) }
@@ -86,10 +86,21 @@ fun OrariApp() {
     var calendarLoadId by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var saved by remember { mutableStateOf(store.saved()) }
+    var savedSchedule by remember { mutableStateOf<ScheduleSnapshot?>(null) }
+    var savedScheduleLoading by remember { mutableStateOf(false) }
     var favorites by remember { mutableStateOf(store.favoriteCourses()) }
     var weekend by remember { mutableStateOf(store.showWeekend) }
     var week by remember { mutableStateOf(startOfWeek(LocalDate.now())) }
     var selectedDay by remember { mutableStateOf(LocalDate.now()) }
+
+    LaunchedEffect(openSavedRequest) {
+        if (openSavedRequest > 0) {
+            settings = false
+            calendar = null
+            courseDetail = null
+            tab = 1
+        }
+    }
 
     LaunchedEffect(yearRetry) {
         loadingYears = true
@@ -119,6 +130,29 @@ fun OrariApp() {
             error = cause.message ?: "Impossibile caricare l'elenco."
         } finally {
             loadingEntries = false
+        }
+    }
+
+    LaunchedEffect(saved) {
+        if (saved.isEmpty()) {
+            savedSchedule = null
+            savedScheduleLoading = false
+            ScheduleWidgetProvider.updateAll(context)
+            return@LaunchedEffect
+        }
+        savedScheduleLoading = true
+        val cached = withContext(Dispatchers.IO) { runCatching { api.cachedSavedLessons(saved) }.getOrNull() }
+        if (cached != null) {
+            savedSchedule = cached
+            ScheduleWidgetProvider.updateAll(context)
+        }
+        try {
+            savedSchedule = withContext(Dispatchers.IO) { api.refreshSavedLessons(saved) }
+            ScheduleWidgetProvider.updateAll(context)
+        } catch (_: Exception) {
+            // The personal calendar remains available from its recent cache.
+        } finally {
+            savedScheduleLoading = false
         }
     }
 
@@ -400,6 +434,8 @@ fun OrariApp() {
                     )
                     tab == 1 -> SavedScreen(
                         saved = saved,
+                        personalLessons = savedSchedule?.lessons,
+                        loadingPersonal = savedScheduleLoading,
                         onOpen = ::openSaved,
                         onCombined = { showCalendar("I miei orari", year?.code.orEmpty(), null, saved) },
                         onAdd = { tab = 0; kind = SearchKind.SUBJECT; query = "" },
@@ -424,6 +460,15 @@ fun startOfWeek(day: LocalDate): LocalDate = day.with(TemporalAdjusters.previous
 fun openingDay(today: LocalDate, weekend: Boolean): LocalDate =
     if (weekend || today.dayOfWeek.value <= DayOfWeek.FRIDAY.value) today
     else startOfWeek(today).plusDays(4)
+
+fun adjacentCalendarDay(day: LocalDate, direction: Long, weekend: Boolean): LocalDate {
+    require(direction == -1L || direction == 1L)
+    var adjacent = day.plusDays(direction)
+    while (!weekend && adjacent.dayOfWeek.value > DayOfWeek.FRIDAY.value) {
+        adjacent = adjacent.plusDays(direction)
+    }
+    return adjacent
+}
 
 fun preferredDay(lessons: List<Lesson>, week: LocalDate, weekend: Boolean): LocalDate =
     lessons.firstOrNull { !it.date.isBefore(week) && it.date.isBefore(week.plusDays(if (weekend) 7 else 5)) }?.date

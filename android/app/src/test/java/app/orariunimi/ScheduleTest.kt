@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.nio.file.Files
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.YearMonth
 
 class ScheduleTest {
@@ -85,5 +86,28 @@ class ScheduleTest {
         val week = startOfWeek(tuesday)
         assertEquals(week, preferredDay(listOf(lesson), week, false))
         assertEquals(saturday, preferredDay(listOf(lesson), week, true))
+    }
+
+    @Test fun adjacentCalendarDaySkipsHiddenWeekend() {
+        val friday = LocalDate.of(2026, 9, 18)
+        val monday = LocalDate.of(2026, 9, 21)
+        assertEquals(monday, adjacentCalendarDay(friday, 1, false))
+        assertEquals(friday, adjacentCalendarDay(monday, -1, false))
+        assertEquals(LocalDate.of(2026, 9, 19), adjacentCalendarDay(friday, 1, true))
+    }
+
+    @Test fun scheduleInsightsFindNextLessonAndOverlaps() {
+        val day = LocalDate.of(2026, 9, 16)
+        val first = Lesson("1", "A", "Algoritmi", day, "09:00", "11:00", "Aula 1", "", "", "", false)
+        val overlap = Lesson("2", "B", "Basi di dati", day, "10:30", "12:30", "Aula 2", "", "", "", false)
+        val later = Lesson("3", "C", "Calcolo", day, "14:00", "16:00", "Aula 3", "", "", "", false)
+        val cancelled = Lesson("4", "D", "Diritto", day, "08:00", "10:00", "", "", "", "", true)
+        val parallelGroup = Lesson("5", "A", "Algoritmi", day, "09:30", "10:30", "Aula 4", "", "", "", false)
+
+        val lessons = listOf(cancelled, later, overlap, parallelGroup, first)
+        assertEquals(first, nextLesson(lessons, LocalDateTime.of(2026, 9, 16, 8, 30)))
+        assertEquals(first, nextLesson(lessons, LocalDateTime.of(2026, 9, 16, 10, 0)))
+        assertEquals(listOf(LessonConflict(first, overlap)), lessonConflicts(lessons))
+        assertEquals(setOf(lessonKey(first), lessonKey(overlap)), conflictingLessonKeys(lessons))
     }
 }

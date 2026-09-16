@@ -32,11 +32,14 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Place
@@ -92,6 +95,7 @@ import java.util.Locale
 private val italian = Locale.ITALIAN
 private val dateLong = DateTimeFormatter.ofPattern("EEEE d MMMM", italian)
 private val dateShort = DateTimeFormatter.ofPattern("d MMM", italian)
+private val nextLessonDate = DateTimeFormatter.ofPattern("EEE d MMM", italian)
 private val updateTime = DateTimeFormatter.ofPattern("HH:mm", italian)
 private val updateDateTime = DateTimeFormatter.ofPattern("d MMM, HH:mm", italian)
 private val lessonColors = listOf(
@@ -120,18 +124,30 @@ fun SearchScreen(
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(18.dp))
             Box {
-                OutlinedButton(onClick = { yearMenu = true }, enabled = years.isNotEmpty()) {
+                OutlinedButton(
+                    onClick = { yearMenu = !yearMenu },
+                    enabled = years.isNotEmpty(),
+                    modifier = Modifier.width(172.dp),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
                     Icon(Icons.Outlined.CalendarMonth, contentDescription = null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(year?.name ?: "Anno accademico")
                     Spacer(Modifier.width(6.dp))
-                    Icon(Icons.Outlined.ChevronRight, contentDescription = null, Modifier.size(17.dp))
+                    Icon(if (yearMenu) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                        contentDescription = if (yearMenu) "Chiudi elenco anni" else "Apri elenco anni",
+                        modifier = Modifier.size(18.dp))
                 }
-                DropdownMenu(expanded = yearMenu, onDismissRequest = { yearMenu = false }) {
+                DropdownMenu(expanded = yearMenu, onDismissRequest = { yearMenu = false },
+                    modifier = Modifier.width(172.dp)) {
                     years.forEach { option ->
-                        DropdownMenuItem(text = { Text(option.name) }, onClick = {
-                            yearMenu = false; onYear(option)
-                        })
+                        DropdownMenuItem(
+                            text = { Text(option.name) },
+                            onClick = { yearMenu = false; onYear(option) },
+                            trailingIcon = if (option == year) {{
+                                Icon(Icons.Outlined.Check, contentDescription = "Anno selezionato")
+                            }} else null
+                        )
                     }
                 }
             }
@@ -237,6 +253,7 @@ private fun SearchResultCard(item: SearchItem, favorite: Boolean, onClick: () ->
 @Composable
 fun SavedScreen(
     saved: List<SavedSubject>,
+    personalLessons: List<Lesson>?, loadingPersonal: Boolean,
     onOpen: (SavedSubject) -> Unit, onCombined: () -> Unit, onAdd: () -> Unit,
     onRemove: (SavedSubject) -> Unit, onClear: () -> Unit
 ) {
@@ -254,6 +271,10 @@ fun SavedScreen(
             Spacer(Modifier.height(5.dp))
             Text("I tuoi insegnamenti, raccolti in un unico calendario.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (saved.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                NextLessonCard(personalLessons, loadingPersonal, onCombined)
+            }
             Spacer(Modifier.height(18.dp))
             Button(onClick = onCombined, enabled = saved.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.CalendarMonth, contentDescription = null, Modifier.size(19.dp))
@@ -299,6 +320,51 @@ fun SavedScreen(
                             Icon(Icons.Outlined.DeleteOutline, contentDescription = "Rimuovi ${item.name}")
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NextLessonCard(lessons: List<Lesson>?, loading: Boolean, onOpen: () -> Unit) {
+    val next = lessons?.let(::nextLesson)
+    val conflicts = remember(lessons) { lessons?.let(::lessonConflicts).orEmpty().size }
+    Card(onClick = onOpen, shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                modifier = Modifier.size(48.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    if (loading && lessons == null) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Outlined.CalendarMonth, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Spacer(Modifier.width(13.dp))
+            Column(Modifier.weight(1f)) {
+                Text("PROSSIMA LEZIONE", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                when {
+                    lessons == null -> Text("Aggiornamento del calendario…",
+                        style = MaterialTheme.typography.bodyMedium)
+                    next == null -> Text("Nessuna lezione in programma",
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    else -> {
+                        Text(next.subject.ifBlank { "Insegnamento" }, style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text("${next.date.format(nextLessonDate).replaceFirstChar { it.titlecase(italian) }} · " +
+                            "${next.start}–${next.end}" + if (next.room.isNotBlank()) " · ${next.room}" else "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                if (conflicts > 0) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("${if (conflicts == 1) "1 sovrapposizione" else "$conflicts sovrapposizioni"} nel calendario",
+                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -366,6 +432,12 @@ fun CalendarScreen(
     var showMonth by remember { mutableStateOf(false) }
     val days = (0 until if (weekend) 7 else 5).map { week.plusDays(it.toLong()) }
     val visibleLessons = calendar.lessons.filter { it.date == selectedDay }
+    val conflictKeys = remember(calendar.lessons, calendar.combinedSubjects) {
+        if (calendar.combinedSubjects != null) conflictingLessonKeys(calendar.lessons) else emptySet()
+    }
+    val visibleConflicts = remember(visibleLessons, calendar.combinedSubjects) {
+        if (calendar.combinedSubjects != null) lessonConflicts(visibleLessons).size else 0
+    }
     if (showMonth) MonthCalendarDialog(
         selectedDay = selectedDay,
         lessons = calendar.lessons,
@@ -387,7 +459,19 @@ fun CalendarScreen(
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainer)
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().pointerInput(selectedDay, weekend) {
+                var drag = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { drag = 0f },
+                    onHorizontalDrag = { change, amount -> drag += amount; change.consume() },
+                    onDragCancel = { drag = 0f },
+                    onDragEnd = {
+                        if (drag > 70f) onSelectDay(adjacentCalendarDay(selectedDay, -1, weekend))
+                        else if (drag < -70f) onSelectDay(adjacentCalendarDay(selectedDay, 1, weekend))
+                        drag = 0f
+                    }
+                )
+            },
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -399,6 +483,18 @@ fun CalendarScreen(
                     "${visibleLessons.size} ${if (visibleLessons.size == 1) "lezione" else "lezioni"}",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (visibleConflicts > 0) item {
+                Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(16.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.WarningAmber, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onErrorContainer)
+                        Spacer(Modifier.width(9.dp))
+                        Text("${if (visibleConflicts == 1) "Una sovrapposizione rilevata" else "$visibleConflicts sovrapposizioni rilevate"}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                }
+            }
             if (visibleLessons.isEmpty()) item {
                 EmptyCard("Nessuna lezione in questo giorno", "Scegli un’altra data o cambia settimana.")
             }
@@ -407,6 +503,7 @@ fun CalendarScreen(
                     calendar.source?.kind == SearchKind.TEACHER
                 LessonCard(lesson,
                     saved = savedSubjects.any { it.year == calendar.year && it.code == lesson.subjectCode },
+                    conflict = lessonKey(lesson) in conflictKeys,
                     onToggleSave = if (canSave) {{ onToggleSubject(lesson) }} else null)
             }
         }
@@ -596,13 +693,13 @@ private fun DayTile(day: LocalDate, selected: Boolean, count: Int, onClick: () -
 }
 
 @Composable
-private fun LessonCard(lesson: Lesson, saved: Boolean, onToggleSave: (() -> Unit)?) {
+private fun LessonCard(lesson: Lesson, saved: Boolean, conflict: Boolean, onToggleSave: (() -> Unit)?) {
     val accent = lessonColors[(lesson.subjectCode.hashCode() and Int.MAX_VALUE) % lessonColors.size]
     Card(shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             Box(Modifier.width(5.dp).fillMaxHeight()
-                .background(if (lesson.cancelled) MaterialTheme.colorScheme.error else accent))
+                .background(if (lesson.cancelled || conflict) MaterialTheme.colorScheme.error else accent))
             Column(Modifier.weight(1f).padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("${lesson.start}–${lesson.end}", style = MaterialTheme.typography.labelLarge,
@@ -613,6 +710,14 @@ private fun LessonCard(lesson: Lesson, saved: Boolean, onToggleSave: (() -> Unit
                         Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(7.dp)) {
                             Text("ANNULLATA", Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
                                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                        }
+                    }
+                    if (conflict) {
+                        Spacer(Modifier.width(10.dp))
+                        Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(7.dp)) {
+                            Text("SOVRAPPOSTA", Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer)
                         }
                     }
                 }
