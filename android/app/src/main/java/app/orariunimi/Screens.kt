@@ -254,7 +254,8 @@ private fun SearchResultCard(item: SearchItem, favorite: Boolean, onClick: () ->
 fun SavedScreen(
     saved: List<SavedSubject>,
     personalLessons: List<Lesson>?, loadingPersonal: Boolean,
-    onOpen: (SavedSubject) -> Unit, onCombined: () -> Unit, onAdd: () -> Unit,
+    onOpen: (SavedSubject) -> Unit, onCombined: () -> Unit,
+    onOpenNext: (LocalDate) -> Unit, onConflicts: () -> Unit, onAdd: () -> Unit,
     onRemove: (SavedSubject) -> Unit, onClear: () -> Unit
 ) {
     var confirmClear by remember { mutableStateOf(false) }
@@ -273,13 +274,19 @@ fun SavedScreen(
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (saved.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))
-                NextLessonCard(personalLessons, loadingPersonal, onCombined)
+                NextLessonCard(personalLessons, loadingPersonal, onOpenNext)
             }
             Spacer(Modifier.height(18.dp))
             Button(onClick = onCombined, enabled = saved.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.CalendarMonth, contentDescription = null, Modifier.size(19.dp))
                 Spacer(Modifier.width(9.dp))
                 Text("Apri calendario personale")
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onConflicts, enabled = saved.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.WarningAmber, contentDescription = null, Modifier.size(19.dp))
+                Spacer(Modifier.width(9.dp))
+                Text("Controlla sovrapposizioni")
             }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onAdd, modifier = Modifier.fillMaxWidth()) {
@@ -327,10 +334,9 @@ fun SavedScreen(
 }
 
 @Composable
-private fun NextLessonCard(lessons: List<Lesson>?, loading: Boolean, onOpen: () -> Unit) {
+private fun NextLessonCard(lessons: List<Lesson>?, loading: Boolean, onOpen: (LocalDate) -> Unit) {
     val next = lessons?.let(::nextLesson)
-    val conflicts = remember(lessons) { lessons?.let(::lessonConflicts).orEmpty().size }
-    Card(onClick = onOpen, shape = RoundedCornerShape(22.dp),
+    Card(onClick = { next?.let { onOpen(it.date) } }, shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
@@ -360,12 +366,112 @@ private fun NextLessonCard(lessons: List<Lesson>?, loading: Boolean, onOpen: () 
                             overflow = TextOverflow.Ellipsis)
                     }
                 }
-                if (conflicts > 0) {
-                    Spacer(Modifier.height(6.dp))
-                    Text("${if (conflicts == 1) "1 sovrapposizione" else "$conflicts sovrapposizioni"} nel calendario",
-                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error,
-                        fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
+fun ConflictsScreen(
+    lessons: List<Lesson>?, loading: Boolean, onOpenDay: (LocalDate) -> Unit
+) {
+    val conflicts = remember(lessons) { lessons?.let(::lessonConflicts) }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text("Incroci nel tuo orario", style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Text("Qui trovi soltanto le lezioni che occupano la stessa fascia oraria.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        when {
+            conflicts == null && loading -> item {
+                ElevatedCard(shape = RoundedCornerShape(22.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Controllo del calendario…")
+                    }
                 }
+            }
+            conflicts.isNullOrEmpty() -> item {
+                EmptyCard("Nessuna sovrapposizione", "Le lezioni salvate non si incrociano tra loro.")
+            }
+            else -> {
+                item {
+                    Surface(color = MaterialTheme.colorScheme.tertiaryContainer,
+                        shape = RoundedCornerShape(16.dp)) {
+                        Text("${conflicts.size} ${if (conflicts.size == 1) "incrocio trovato" else "incroci trovati"}",
+                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                items(conflicts, key = { conflict ->
+                    "${lessonKey(conflict.first)}:${lessonKey(conflict.second)}"
+                }) { conflict ->
+                    ConflictCard(conflict, onOpenDay)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConflictCard(conflict: LessonConflict, onOpenDay: (LocalDate) -> Unit) {
+    val overlap = remember(conflict) { conflictInterval(conflict) }
+    Card(onClick = { onOpenDay(conflict.first.date) }, shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Column(Modifier.weight(1f)) {
+                    Text(conflict.first.date.format(dateLong).replaceFirstChar { it.titlecase(italian) },
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Tocca per aprire questa giornata", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (overlap != null) Surface(color = MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = RoundedCornerShape(12.dp)) {
+                    Text("${overlap.first}–${overlap.second}",
+                        Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ConflictLessonTile(conflict.first, Modifier.weight(1f))
+                ConflictLessonTile(conflict.second, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConflictLessonTile(lesson: Lesson, modifier: Modifier = Modifier) {
+    val accent = lessonColors[(lesson.subjectCode.hashCode() and Int.MAX_VALUE) % lessonColors.size]
+    Surface(modifier = modifier.fillMaxHeight(), color = accent.copy(alpha = 0.14f),
+        shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.padding(13.dp)) {
+            Text("${lesson.start}–${lesson.end}", style = MaterialTheme.typography.labelMedium,
+                color = accent, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(7.dp))
+            Text(lesson.subject.ifBlank { "Insegnamento" }, style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold, maxLines = 4, overflow = TextOverflow.Ellipsis)
+            if (lesson.room.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(lesson.room, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -432,12 +538,6 @@ fun CalendarScreen(
     var showMonth by remember { mutableStateOf(false) }
     val days = (0 until if (weekend) 7 else 5).map { week.plusDays(it.toLong()) }
     val visibleLessons = calendar.lessons.filter { it.date == selectedDay }
-    val conflictKeys = remember(calendar.lessons, calendar.combinedSubjects) {
-        if (calendar.combinedSubjects != null) conflictingLessonKeys(calendar.lessons) else emptySet()
-    }
-    val visibleConflicts = remember(visibleLessons, calendar.combinedSubjects) {
-        if (calendar.combinedSubjects != null) lessonConflicts(visibleLessons).size else 0
-    }
     if (showMonth) MonthCalendarDialog(
         selectedDay = selectedDay,
         lessons = calendar.lessons,
@@ -483,18 +583,6 @@ fun CalendarScreen(
                     "${visibleLessons.size} ${if (visibleLessons.size == 1) "lezione" else "lezioni"}",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (visibleConflicts > 0) item {
-                Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(16.dp)) {
-                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.WarningAmber, contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onErrorContainer)
-                        Spacer(Modifier.width(9.dp))
-                        Text("${if (visibleConflicts == 1) "Una sovrapposizione rilevata" else "$visibleConflicts sovrapposizioni rilevate"}",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onErrorContainer)
-                    }
-                }
-            }
             if (visibleLessons.isEmpty()) item {
                 EmptyCard("Nessuna lezione in questo giorno", "Scegli un’altra data o cambia settimana.")
             }
@@ -503,7 +591,6 @@ fun CalendarScreen(
                     calendar.source?.kind == SearchKind.TEACHER
                 LessonCard(lesson,
                     saved = savedSubjects.any { it.year == calendar.year && it.code == lesson.subjectCode },
-                    conflict = lessonKey(lesson) in conflictKeys,
                     onToggleSave = if (canSave) {{ onToggleSubject(lesson) }} else null)
             }
         }
@@ -693,13 +780,13 @@ private fun DayTile(day: LocalDate, selected: Boolean, count: Int, onClick: () -
 }
 
 @Composable
-private fun LessonCard(lesson: Lesson, saved: Boolean, conflict: Boolean, onToggleSave: (() -> Unit)?) {
+private fun LessonCard(lesson: Lesson, saved: Boolean, onToggleSave: (() -> Unit)?) {
     val accent = lessonColors[(lesson.subjectCode.hashCode() and Int.MAX_VALUE) % lessonColors.size]
     Card(shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             Box(Modifier.width(5.dp).fillMaxHeight()
-                .background(if (lesson.cancelled || conflict) MaterialTheme.colorScheme.error else accent))
+                .background(if (lesson.cancelled) MaterialTheme.colorScheme.error else accent))
             Column(Modifier.weight(1f).padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("${lesson.start}–${lesson.end}", style = MaterialTheme.typography.labelLarge,
@@ -710,14 +797,6 @@ private fun LessonCard(lesson: Lesson, saved: Boolean, conflict: Boolean, onTogg
                         Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(7.dp)) {
                             Text("ANNULLATA", Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
                                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer)
-                        }
-                    }
-                    if (conflict) {
-                        Spacer(Modifier.width(10.dp))
-                        Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(7.dp)) {
-                            Text("SOVRAPPOSTA", Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer)
                         }
                     }
                 }

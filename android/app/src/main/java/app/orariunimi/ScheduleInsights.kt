@@ -1,6 +1,7 @@
 package app.orariunimi
 
 import java.time.LocalDateTime
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -19,6 +20,10 @@ fun nextLesson(lessons: List<Lesson>, now: LocalDateTime = LocalDateTime.now()):
     .filter { (_, interval) -> interval.second.isAfter(now) }
     .minByOrNull { (_, interval) -> interval.first }
     ?.first
+
+fun lessonsForDay(lessons: List<Lesson>, day: LocalDate = LocalDate.now()): List<Lesson> = lessons
+    .filter { it.date == day }
+    .sortedWith(compareBy<Lesson> { it.start }.thenBy { it.subject })
 
 fun lessonConflicts(lessons: List<Lesson>): List<LessonConflict> {
     val active = lessons.filterNot { it.cancelled }.groupBy { it.date }
@@ -42,6 +47,15 @@ fun lessonConflicts(lessons: List<Lesson>): List<LessonConflict> {
 fun conflictingLessonKeys(lessons: List<Lesson>): Set<String> = lessonConflicts(lessons)
     .flatMap { listOf(lessonKey(it.first), lessonKey(it.second)) }
     .toSet()
+
+fun conflictInterval(conflict: LessonConflict): Pair<String, String>? {
+    val first = lessonInterval(conflict.first) ?: return null
+    val second = lessonInterval(conflict.second) ?: return null
+    val start = maxOf(first.first, second.first).toLocalTime()
+    val end = minOf(first.second, second.second).toLocalTime()
+    if (start >= end) return null
+    return start.format(lessonTimeFormat) to end.format(lessonTimeFormat)
+}
 
 private fun lessonInterval(lesson: Lesson): Pair<LocalDateTime, LocalDateTime>? = runCatching {
     val start = LocalTime.parse(lesson.start, lessonTimeFormat)

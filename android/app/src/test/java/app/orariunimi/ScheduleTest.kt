@@ -107,7 +107,9 @@ class ScheduleTest {
         val lessons = listOf(cancelled, later, overlap, parallelGroup, first)
         assertEquals(first, nextLesson(lessons, LocalDateTime.of(2026, 9, 16, 8, 30)))
         assertEquals(first, nextLesson(lessons, LocalDateTime.of(2026, 9, 16, 10, 0)))
+        assertEquals(listOf(cancelled, first, parallelGroup, overlap, later), lessonsForDay(lessons, day))
         assertEquals(listOf(LessonConflict(first, overlap)), lessonConflicts(lessons))
         assertEquals(setOf(lessonKey(first), lessonKey(overlap)), conflictingLessonKeys(lessons))
+        assertEquals("10:30" to "11:00", conflictInterval(LessonConflict(first, overlap)))
     }
 }

@@ -70,6 +70,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     val snackbar = remember { SnackbarHostState() }
     var tab by remember { mutableIntStateOf(initialTab) }
     var settings by remember { mutableStateOf(false) }
+    var conflictsOpen by remember { mutableStateOf(false) }
     var calendar by remember { mutableStateOf<CalendarData?>(null) }
     var courseDetail by remember { mutableStateOf<CourseDetailData?>(null) }
     var years by remember { mutableStateOf<List<AcademicYear>>(emptyList()) }
@@ -96,6 +97,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     LaunchedEffect(openSavedRequest) {
         if (openSavedRequest > 0) {
             settings = false
+            conflictsOpen = false
             calendar = null
             courseDetail = null
             tab = 1
@@ -189,10 +191,14 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
         selectedDay = preferredDay(calendar?.lessons.orEmpty(), week, weekend)
     }
 
-    fun showCalendar(title: String, yearCode: String, source: SearchItem?, combined: List<SavedSubject>? = null) {
+    fun showCalendar(
+        title: String, yearCode: String, source: SearchItem?,
+        combined: List<SavedSubject>? = null, openDay: LocalDate? = null
+    ) {
         calendarLoadId++
         val loadId = calendarLoadId
         scope.launch {
+            conflictsOpen = false
             error = null
             val sameCalendar = calendar?.let {
                 it.title == title && it.year == yearCode && it.source?.kind == source?.kind &&
@@ -200,6 +206,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
             } == true
             busy = !sameCalendar
             calendarRefreshing = true
+            var selectionApplied = false
 
             fun show(snapshot: ScheduleSnapshot, offline: Boolean) {
                 if (loadId != calendarLoadId) return
@@ -208,10 +215,11 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                     it.title == title && it.year == yearCode && it.source?.kind == source?.kind &&
                         it.source?.code == source?.code && it.combinedSubjects == combined
                 } == true
-                if (!same) {
-                    val initialDay = openingDay(LocalDate.now(), weekend)
+                if (!same || openDay != null && !selectionApplied) {
+                    val initialDay = openDay ?: openingDay(LocalDate.now(), weekend)
                     week = startOfWeek(initialDay)
                     selectedDay = initialDay
+                    selectionApplied = true
                 }
                 calendar = CalendarData(title, snapshot.lessons, yearCode, source,
                     snapshot.updatedAtMillis, offline, combined)
@@ -299,12 +307,13 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
         when {
             calendar != null -> calendar = null
             courseDetail != null -> courseDetail = null
+            conflictsOpen -> conflictsOpen = false
             else -> settings = false
         }
         error = null
     }
 
-    BackHandler(enabled = calendar != null || courseDetail != null || settings) { goBack() }
+    BackHandler(enabled = calendar != null || courseDetail != null || conflictsOpen || settings) { goBack() }
 
     Scaffold(
         topBar = {
@@ -314,6 +323,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                         calendar != null -> Text(calendar!!.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         courseDetail != null -> Text(courseDetail!!.course.name, maxLines = 1,
                             overflow = TextOverflow.Ellipsis)
+                        conflictsOpen -> Text("Sovrapposizioni")
                         settings -> Text("Preferenze")
                         else -> Column {
                             Text("Orari UNIMI", style = MaterialTheme.typography.titleLarge)
@@ -323,7 +333,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                     }
                 },
                 navigationIcon = {
-                    if (calendar != null || courseDetail != null || settings) IconButton(onClick = ::goBack) {
+                    if (calendar != null || courseDetail != null || conflictsOpen || settings) IconButton(onClick = ::goBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Indietro")
                     }
                 },
@@ -347,7 +357,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                                 contentDescription = if (isFavorite) "Rimuovi corso dai preferiti"
                                     else "Salva corso nei preferiti")
                         }
-                    } else if (calendar == null && courseDetail == null && !settings) {
+                    } else if (calendar == null && courseDetail == null && !conflictsOpen && !settings) {
                         IconButton(onClick = { settings = true; error = null }) {
                             Icon(Icons.Outlined.Settings, contentDescription = "Preferenze")
                         }
@@ -356,7 +366,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
             )
         },
         bottomBar = {
-            if (calendar == null && courseDetail == null && !settings) NavigationBar {
+            if (calendar == null && courseDetail == null && !conflictsOpen && !settings) NavigationBar {
                 NavigationBarItem(
                     selected = tab == 0, onClick = { tab = 0; error = null },
                     icon = { Icon(Icons.Outlined.Search, contentDescription = null) }, label = { Text("Esplora") }
@@ -375,7 +385,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
-                if (loadingEntries && tab == 0 && calendar == null && courseDetail == null && !settings || busy) {
+                if (loadingEntries && tab == 0 && calendar == null && courseDetail == null && !conflictsOpen && !settings || busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
                 if (error != null) ErrorBanner(error!!, onDismiss = { error = null },
@@ -385,6 +395,13 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                     }} else null)
                 when {
                     settings -> SettingsScreen(weekend, ::toggleWeekend)
+                    conflictsOpen -> ConflictsScreen(
+                        lessons = savedSchedule?.lessons,
+                        loading = savedScheduleLoading,
+                        onOpenDay = { day ->
+                            showCalendar("I miei orari", year?.code.orEmpty(), null, saved, day)
+                        }
+                    )
                     calendar != null -> {
                         val shown = calendar!!
                         CalendarScreen(shown, week, selectedDay, weekend, saved,
@@ -438,6 +455,10 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                         loadingPersonal = savedScheduleLoading,
                         onOpen = ::openSaved,
                         onCombined = { showCalendar("I miei orari", year?.code.orEmpty(), null, saved) },
+                        onOpenNext = { day ->
+                            showCalendar("I miei orari", year?.code.orEmpty(), null, saved, day)
+                        },
+                        onConflicts = { conflictsOpen = true; error = null },
                         onAdd = { tab = 0; kind = SearchKind.SUBJECT; query = "" },
                         onRemove = { store.remove(it); saved = store.saved() },
                         onClear = { store.clear(); saved = emptyList() }

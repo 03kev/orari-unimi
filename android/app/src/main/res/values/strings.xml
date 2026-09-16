@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Orari UNIMI</string>
-    <string name="widget_title">Prossima lezione</string>
-    <string name="widget_description">Mostra la prossima lezione salvata in Orari UNIMI</string>
+    <string name="widget_title">Lezioni di oggi</string>
+    <string name="widget_description">Mostra tutte le lezioni di oggi salvate in Orari UNIMI</string>
 </resources>
