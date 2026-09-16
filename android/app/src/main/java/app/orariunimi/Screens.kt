@@ -1,10 +1,12 @@
 package app.orariunimi
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -47,6 +50,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material.icons.outlined.ViewWeek
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -70,6 +74,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -80,12 +85,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -266,27 +273,36 @@ fun SavedScreen(
         confirmButton = { TextButton(onClick = { confirmClear = false; onClear() }) { Text("Elimina tutto") } },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Annulla") } }
     )
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxWidth().padding(20.dp)) {
-            Text("I miei orari", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("I miei orari", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold)
+                if (saved.isNotEmpty()) Surface(shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    IconButton(onClick = onConflicts, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Outlined.ViewWeek, contentDescription = "Apri vista settimanale")
+                    }
+                }
+            }
             Spacer(Modifier.height(5.dp))
             Text("I tuoi insegnamenti, raccolti in un unico calendario.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (saved.isNotEmpty()) {
-                Spacer(Modifier.height(16.dp))
-                NextLessonCard(personalLessons, loadingPersonal, onOpenNext)
-            }
-            Spacer(Modifier.height(18.dp))
+        }
+        if (saved.isNotEmpty()) item {
+            Spacer(Modifier.height(6.dp))
+            NextLessonCard(personalLessons, loadingPersonal, onOpenNext)
+        }
+        item {
+            Spacer(Modifier.height(8.dp))
             Button(onClick = onCombined, enabled = saved.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.CalendarMonth, contentDescription = null, Modifier.size(19.dp))
                 Spacer(Modifier.width(9.dp))
                 Text("Apri calendario personale")
-            }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onConflicts, enabled = saved.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.WarningAmber, contentDescription = null, Modifier.size(19.dp))
-                Spacer(Modifier.width(9.dp))
-                Text("Controlla sovrapposizioni")
             }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onAdd, modifier = Modifier.fillMaxWidth()) {
@@ -294,8 +310,14 @@ fun SavedScreen(
                 Spacer(Modifier.width(9.dp))
                 Text("Aggiungi insegnamento")
             }
-            if (saved.isNotEmpty()) {
-                Spacer(Modifier.height(20.dp))
+        }
+        if (saved.isEmpty()) item {
+            Spacer(Modifier.height(12.dp))
+            EmptyCard("Ancora nessun insegnamento",
+                "Cerca un insegnamento e tocca il segnalibro nel calendario.")
+        } else {
+            item {
+                Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("SALVATI · ${saved.size}", style = MaterialTheme.typography.labelMedium,
@@ -303,13 +325,6 @@ fun SavedScreen(
                     TextButton(onClick = { confirmClear = true }) { Text("Svuota elenco") }
                 }
             }
-        }
-        if (saved.isEmpty()) EmptyPanel("Ancora nessun insegnamento",
-            "Cerca un insegnamento e tocca il segnalibro nel calendario.")
-        else LazyColumn(
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
             items(saved, key = { item -> "${item.year}:${item.code}" }) { item ->
                 Card(onClick = { onOpen(item) }, shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
@@ -372,51 +387,133 @@ private fun NextLessonCard(lessons: List<Lesson>?, loading: Boolean, onOpen: (Lo
 }
 
 @Composable
-fun ConflictsScreen(
-    lessons: List<Lesson>?, loading: Boolean, onOpenDay: (LocalDate) -> Unit
+fun WeeklyScheduleScreen(
+    lessons: List<Lesson>?, loading: Boolean, weekend: Boolean, onOpenDay: (LocalDate) -> Unit
 ) {
-    val conflicts = remember(lessons) { lessons?.let(::lessonConflicts) }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        item {
-            Text("Incroci nel tuo orario", style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(6.dp))
-            Text("Qui trovi soltanto le lezioni che occupano la stessa fascia oraria.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+    var week by remember { mutableStateOf(startOfWeek(LocalDate.now())) }
+    val days = (0 until if (weekend) 7 else 5).map { week.plusDays(it.toLong()) }
+    val weekEnd = week.plusDays(if (weekend) 7 else 5)
+    val visibleLessons = remember(lessons, week, weekend) {
+        lessons.orEmpty().filter { !it.date.isBefore(week) && it.date.isBefore(weekEnd) }
+    }
+    val placements = remember(visibleLessons) { timelineLessons(visibleLessons) }
+    val horizontal = rememberScrollState()
+    val vertical = rememberScrollState()
+    val dayWidth = 138.dp
+    val timeWidth = 58.dp
+    val slotHeight = 52.dp
+    val firstMinute = 7 * 60 + 30
+    val lastMinute = 21 * 60
+    val slots = (lastMinute - firstMinute) / 30
+    val gridHeight = slotHeight * slots
+    val dayWidthPixels = with(LocalDensity.current) { dayWidth.roundToPx() }
+
+    LaunchedEffect(horizontal.maxValue, week, weekend) {
+        val todayIndex = days.indexOf(LocalDate.now())
+        if (horizontal.maxValue > 0 && todayIndex >= 0) {
+            horizontal.scrollTo((todayIndex * dayWidthPixels).coerceAtMost(horizontal.maxValue))
         }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { week = week.minusWeeks(1) }) {
+                Icon(Icons.Outlined.ChevronLeft, contentDescription = "Settimana precedente")
+            }
+            Column(Modifier.weight(1f)) {
+                Text("SETTIMANA", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text("${week.format(dateShort)} – ${week.plusDays(6).format(dateShort)}",
+                    style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            }
+            TextButton(onClick = { week = startOfWeek(LocalDate.now()) }) { Text("Oggi") }
+            IconButton(onClick = { week = week.plusWeeks(1) }) {
+                Icon(Icons.Outlined.ChevronRight, contentDescription = "Settimana successiva")
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         when {
-            conflicts == null && loading -> item {
-                ElevatedCard(shape = RoundedCornerShape(22.dp)) {
-                    Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Text("Controllo del calendario…")
+            lessons == null && loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            else -> Row(Modifier.fillMaxSize().verticalScroll(vertical)) {
+                Column(Modifier.width(timeWidth)) {
+                    Box(Modifier.width(timeWidth).height(66.dp), contentAlignment = Alignment.BottomCenter) {
+                        Text("ORA", Modifier.padding(bottom = 9.dp), style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Box(Modifier.width(timeWidth).height(gridHeight)) {
+                        repeat(slots + 1) { index ->
+                            val minute = firstMinute + index * 30
+                            Text(LocalTime.of(minute / 60, minute % 60).format(updateTime),
+                                modifier = Modifier.width(timeWidth).offset(y = slotHeight * index - 8.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1)
+                        }
                     }
                 }
-            }
-            conflicts.isNullOrEmpty() -> item {
-                EmptyCard("Nessuna sovrapposizione", "Le lezioni salvate non si incrociano tra loro.")
-            }
-            else -> {
-                item {
-                    Surface(color = MaterialTheme.colorScheme.tertiaryContainer,
-                        shape = RoundedCornerShape(16.dp)) {
-                        Text("${conflicts.size} ${if (conflicts.size == 1) "incrocio trovato" else "incroci trovati"}",
-                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                            fontWeight = FontWeight.SemiBold)
+                Box(Modifier.weight(1f)) {
+                    Column(Modifier.horizontalScroll(horizontal)) {
+                        Row {
+                            days.forEach { day ->
+                                val today = day == LocalDate.now()
+                                Surface(color = if (today) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surface,
+                                    modifier = Modifier.width(dayWidth).height(66.dp)) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center) {
+                                        Text(day.dayOfWeek.getDisplayName(TextStyle.SHORT, italian).uppercase(italian),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (today) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontWeight = FontWeight.Bold)
+                                        Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                        Box(Modifier.width(dayWidth * days.size).height(gridHeight)) {
+                        val gridColor = MaterialTheme.colorScheme.outlineVariant
+                        Canvas(Modifier.fillMaxSize()) {
+                            repeat(slots + 1) { index ->
+                                val y = slotHeight.toPx() * index
+                                drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(0f, y),
+                                    end = androidx.compose.ui.geometry.Offset(size.width, y), strokeWidth = 1f)
+                            }
+                            repeat(days.size + 1) { index ->
+                                val x = dayWidth.toPx() * index
+                                drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(x, 0f),
+                                    end = androidx.compose.ui.geometry.Offset(x, size.height), strokeWidth = 1f)
+                            }
+                        }
+                        placements.forEach { placement ->
+                            val lesson = placement.lesson
+                            val dayIndex = days.indexOf(lesson.date)
+                            val start = timelineMinutes(lesson.start).coerceAtLeast(firstMinute)
+                            val end = timelineMinutes(lesson.end).coerceAtMost(lastMinute)
+                            if (dayIndex >= 0 && end > start) {
+                                val laneWidth = dayWidth / placement.laneCount
+                                val top = slotHeight * ((start - firstMinute) / 30f)
+                                val height = maxOf(44.dp, slotHeight * ((end - start) / 30f) - 4.dp)
+                                TimelineLessonCard(
+                                    lesson = lesson,
+                                    compact = placement.laneCount > 1,
+                                    modifier = Modifier
+                                        .offset(
+                                            x = dayWidth * dayIndex + laneWidth * placement.lane + 2.dp,
+                                            y = top + 2.dp
+                                        )
+                                        .width(laneWidth - 4.dp)
+                                        .height(height),
+                                    onClick = { onOpenDay(lesson.date) }
+                                )
+                            }
+                        }
+                        }
                     }
-                }
-                items(conflicts, key = { conflict ->
-                    "${lessonKey(conflict.first)}:${lessonKey(conflict.second)}"
-                }) { conflict ->
-                    ConflictCard(conflict, onOpenDay)
                 }
             }
         }
@@ -424,58 +521,29 @@ fun ConflictsScreen(
 }
 
 @Composable
-private fun ConflictCard(conflict: LessonConflict, onOpenDay: (LocalDate) -> Unit) {
-    val overlap = remember(conflict) { conflictInterval(conflict) }
-    Card(onClick = { onOpenDay(conflict.first.date) }, shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween) {
-                Column(Modifier.weight(1f)) {
-                    Text(conflict.first.date.format(dateLong).replaceFirstChar { it.titlecase(italian) },
-                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Tocca per aprire questa giornata", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (overlap != null) Surface(color = MaterialTheme.colorScheme.tertiaryContainer,
-                    shape = RoundedCornerShape(12.dp)) {
-                    Text("${overlap.first}–${overlap.second}",
-                        Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        fontWeight = FontWeight.Bold)
-                }
-            }
-            Spacer(Modifier.height(14.dp))
-            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ConflictLessonTile(conflict.first, Modifier.weight(1f))
-                ConflictLessonTile(conflict.second, Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun ConflictLessonTile(lesson: Lesson, modifier: Modifier = Modifier) {
+private fun TimelineLessonCard(lesson: Lesson, compact: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val accent = lessonColors[(lesson.subjectCode.hashCode() and Int.MAX_VALUE) % lessonColors.size]
-    Surface(modifier = modifier.fillMaxHeight(), color = accent.copy(alpha = 0.14f),
-        shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.padding(13.dp)) {
-            Text("${lesson.start}–${lesson.end}", style = MaterialTheme.typography.labelMedium,
-                color = accent, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(7.dp))
-            Text(lesson.subject.ifBlank { "Insegnamento" }, style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold, maxLines = 4, overflow = TextOverflow.Ellipsis)
-            if (lesson.room.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text(lesson.room, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
-                    overflow = TextOverflow.Ellipsis)
-            }
+    val background = if (lesson.cancelled) MaterialTheme.colorScheme.errorContainer else accent.copy(alpha = 0.24f)
+    val content = if (lesson.cancelled) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface
+    Surface(onClick = onClick, modifier = modifier, color = background, shape = RoundedCornerShape(10.dp)) {
+        Column(Modifier.padding(if (compact) 5.dp else 7.dp)) {
+            Text(lesson.subject.ifBlank { "Insegnamento" },
+                color = content, fontSize = if (compact) 9.sp else 12.sp,
+                fontWeight = FontWeight.Bold, maxLines = if (compact) 5 else 3,
+                overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(if (compact) 2.dp else 3.dp))
+            Text("${lesson.start}–${lesson.end}", color = content.copy(alpha = 0.82f),
+                fontSize = if (compact) 8.sp else 10.sp, maxLines = 1)
+            if (lesson.room.isNotBlank()) Text(lesson.room, color = content.copy(alpha = 0.72f),
+                fontSize = if (compact) 8.sp else 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
+
+private fun timelineMinutes(value: String): Int = runCatching {
+    val time = LocalTime.parse(value, DateTimeFormatter.ofPattern("H:mm"))
+    time.hour * 60 + time.minute
+}.getOrDefault(0)
 
 @Composable
 fun SettingsScreen(weekend: Boolean, onWeekend: () -> Unit) {

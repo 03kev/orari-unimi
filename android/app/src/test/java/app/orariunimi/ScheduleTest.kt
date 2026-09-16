@@ -112,4 +112,15 @@ class ScheduleTest {
         assertEquals(setOf(lessonKey(first), lessonKey(overlap)), conflictingLessonKeys(lessons))
         assertEquals("10:30" to "11:00", conflictInterval(LessonConflict(first, overlap)))
     }
+
+    @Test fun weeklyTimelineReusesLanesAcrossAnOverlapCluster() {
+        val day = LocalDate.of(2026, 9, 17)
+        val first = Lesson("1", "A", "A", day, "09:00", "10:00", "", "", "", "", false)
+        val middle = Lesson("2", "B", "B", day, "09:30", "10:30", "", "", "", "", false)
+        val last = Lesson("3", "C", "C", day, "10:00", "11:00", "", "", "", "", false)
+
+        val placements = timelineLessons(listOf(last, middle, first))
+        assertEquals(listOf(0, 1, 0), placements.map { it.lane })
+        assertEquals(listOf(2, 2, 2), placements.map { it.laneCount })
+    }
 }

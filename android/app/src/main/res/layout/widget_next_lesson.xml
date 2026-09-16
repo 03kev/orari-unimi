@@ -8,20 +8,49 @@
     android:orientation="vertical"
     android:padding="14dp">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:fontFamily="sans-serif-medium"
-        android:text="@string/widget_title"
-        android:textAllCaps="true"
-        android:textColor="@color/widget_accent"
-        android:textSize="11sp" />
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="32dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:fontFamily="sans-serif-medium"
+            android:text="@string/widget_title"
+            android:textAllCaps="true"
+            android:textColor="@color/widget_accent"
+            android:textSize="11sp" />
+
+        <ImageButton
+            android:id="@+id/widget_previous"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="Giorno precedente"
+            android:padding="7dp"
+            android:src="@drawable/widget_chevron_left"
+            android:tint="@color/widget_accent" />
+
+        <ImageButton
+            android:id="@+id/widget_next"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="Giorno successivo"
+            android:padding="7dp"
+            android:src="@drawable/widget_chevron_right"
+            android:tint="@color/widget_accent" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/widget_subject"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="2dp"
         android:ellipsize="end"
         android:fontFamily="sans-serif-medium"
         android:maxLines="1"

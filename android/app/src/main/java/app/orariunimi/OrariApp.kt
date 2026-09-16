@@ -70,7 +70,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     val snackbar = remember { SnackbarHostState() }
     var tab by remember { mutableIntStateOf(initialTab) }
     var settings by remember { mutableStateOf(false) }
-    var conflictsOpen by remember { mutableStateOf(false) }
+    var weeklyOpen by remember { mutableStateOf(false) }
     var calendar by remember { mutableStateOf<CalendarData?>(null) }
     var courseDetail by remember { mutableStateOf<CourseDetailData?>(null) }
     var years by remember { mutableStateOf<List<AcademicYear>>(emptyList()) }
@@ -97,7 +97,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     LaunchedEffect(openSavedRequest) {
         if (openSavedRequest > 0) {
             settings = false
-            conflictsOpen = false
+            weeklyOpen = false
             calendar = null
             courseDetail = null
             tab = 1
@@ -198,7 +198,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
         calendarLoadId++
         val loadId = calendarLoadId
         scope.launch {
-            conflictsOpen = false
+            weeklyOpen = false
             error = null
             val sameCalendar = calendar?.let {
                 it.title == title && it.year == yearCode && it.source?.kind == source?.kind &&
@@ -307,13 +307,13 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
         when {
             calendar != null -> calendar = null
             courseDetail != null -> courseDetail = null
-            conflictsOpen -> conflictsOpen = false
+            weeklyOpen -> weeklyOpen = false
             else -> settings = false
         }
         error = null
     }
 
-    BackHandler(enabled = calendar != null || courseDetail != null || conflictsOpen || settings) { goBack() }
+    BackHandler(enabled = calendar != null || courseDetail != null || weeklyOpen || settings) { goBack() }
 
     Scaffold(
         topBar = {
@@ -323,7 +323,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                         calendar != null -> Text(calendar!!.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         courseDetail != null -> Text(courseDetail!!.course.name, maxLines = 1,
                             overflow = TextOverflow.Ellipsis)
-                        conflictsOpen -> Text("Sovrapposizioni")
+                        weeklyOpen -> Text("Vista settimanale")
                         settings -> Text("Preferenze")
                         else -> Column {
                             Text("Orari UNIMI", style = MaterialTheme.typography.titleLarge)
@@ -333,7 +333,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                     }
                 },
                 navigationIcon = {
-                    if (calendar != null || courseDetail != null || conflictsOpen || settings) IconButton(onClick = ::goBack) {
+                    if (calendar != null || courseDetail != null || weeklyOpen || settings) IconButton(onClick = ::goBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Indietro")
                     }
                 },
@@ -357,7 +357,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                                 contentDescription = if (isFavorite) "Rimuovi corso dai preferiti"
                                     else "Salva corso nei preferiti")
                         }
-                    } else if (calendar == null && courseDetail == null && !conflictsOpen && !settings) {
+                    } else if (calendar == null && courseDetail == null && !weeklyOpen && !settings) {
                         IconButton(onClick = { settings = true; error = null }) {
                             Icon(Icons.Outlined.Settings, contentDescription = "Preferenze")
                         }
@@ -366,7 +366,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
             )
         },
         bottomBar = {
-            if (calendar == null && courseDetail == null && !conflictsOpen && !settings) NavigationBar {
+            if (calendar == null && courseDetail == null && !weeklyOpen && !settings) NavigationBar {
                 NavigationBarItem(
                     selected = tab == 0, onClick = { tab = 0; error = null },
                     icon = { Icon(Icons.Outlined.Search, contentDescription = null) }, label = { Text("Esplora") }
@@ -385,7 +385,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
-                if (loadingEntries && tab == 0 && calendar == null && courseDetail == null && !conflictsOpen && !settings || busy) {
+                if (loadingEntries && tab == 0 && calendar == null && courseDetail == null && !weeklyOpen && !settings || busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
                 if (error != null) ErrorBanner(error!!, onDismiss = { error = null },
@@ -395,9 +395,10 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                     }} else null)
                 when {
                     settings -> SettingsScreen(weekend, ::toggleWeekend)
-                    conflictsOpen -> ConflictsScreen(
+                    weeklyOpen -> WeeklyScheduleScreen(
                         lessons = savedSchedule?.lessons,
                         loading = savedScheduleLoading,
+                        weekend = weekend,
                         onOpenDay = { day ->
                             showCalendar("I miei orari", year?.code.orEmpty(), null, saved, day)
                         }
@@ -458,7 +459,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                         onOpenNext = { day ->
                             showCalendar("I miei orari", year?.code.orEmpty(), null, saved, day)
                         },
-                        onConflicts = { conflictsOpen = true; error = null },
+                        onConflicts = { weeklyOpen = true; error = null },
                         onAdd = { tab = 0; kind = SearchKind.SUBJECT; query = "" },
                         onRemove = { store.remove(it); saved = store.saved() },
                         onClear = { store.clear(); saved = emptyList() }

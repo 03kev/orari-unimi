@@ -1,11 +1,12 @@
 package app.orariunimi
 
-import java.time.LocalDateTime
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
 data class LessonConflict(val first: Lesson, val second: Lesson)
+data class TimelineLesson(val lesson: Lesson, val lane: Int, val laneCount: Int)
 
 private val lessonTimeFormat = DateTimeFormatter.ofPattern("H:mm")
 
@@ -56,6 +57,45 @@ fun conflictInterval(conflict: LessonConflict): Pair<String, String>? {
     if (start >= end) return null
     return start.format(lessonTimeFormat) to end.format(lessonTimeFormat)
 }
+
+fun timelineLessons(lessons: List<Lesson>): List<TimelineLesson> = lessons
+    .groupBy { it.date }
+    .values
+    .flatMap { sameDay ->
+        val intervals = sameDay.mapNotNull { lesson ->
+            val interval = lessonInterval(lesson) ?: return@mapNotNull null
+            Triple(lesson, interval.first.toLocalTime(), interval.second.toLocalTime())
+        }.sortedWith(compareBy<Triple<Lesson, LocalTime, LocalTime>> { it.second }.thenBy { it.third })
+
+        val result = mutableListOf<TimelineLesson>()
+        var cluster = mutableListOf<Triple<Lesson, LocalTime, LocalTime>>()
+        var clusterEnd: LocalTime? = null
+
+        fun flushCluster() {
+            if (cluster.isEmpty()) return
+            val laneEnds = mutableListOf<LocalTime>()
+            val assigned = cluster.map { item ->
+                val lane = laneEnds.indexOfFirst { end -> end <= item.second }.let { available ->
+                    if (available >= 0) available else laneEnds.size
+                }
+                if (lane == laneEnds.size) laneEnds += item.third else laneEnds[lane] = item.third
+                item.first to lane
+            }
+            val laneCount = laneEnds.size.coerceAtLeast(1)
+            result += assigned.map { (lesson, lane) -> TimelineLesson(lesson, lane, laneCount) }
+            cluster = mutableListOf()
+            clusterEnd = null
+        }
+
+        intervals.forEach { item ->
+            if (clusterEnd?.let { item.second >= it } == true) flushCluster()
+            cluster += item
+            clusterEnd = maxOf(clusterEnd ?: item.third, item.third)
+        }
+        flushCluster()
+        result
+    }
+    .sortedWith(compareBy<TimelineLesson> { it.lesson.date }.thenBy { it.lesson.start }.thenBy { it.lane })
 
 private fun lessonInterval(lesson: Lesson): Pair<LocalDateTime, LocalDateTime>? = runCatching {
     val start = LocalTime.parse(lesson.start, lessonTimeFormat)
