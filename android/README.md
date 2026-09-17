@@ -10,6 +10,11 @@ aggiungere direttamente un insegnamento ai propri orari. La visibilità del
 weekend si sceglie nelle Preferenze e resta salvata.
 Dal calendario settimanale si può aprire la vista mensile, scorrere tra i mesi e
 saltare direttamente a una data oppure tornare a oggi.
+La vista agenda mostra gli orari dalle 08:30 alle 19:30 e permette di passare
+tra la modalità giornaliera e quella settimanale, con scorrimento libero in
+entrambe le direzioni. È disponibile sia per il calendario personale sia per i
+corsi di laurea. Il widget riassume le lezioni del giorno in formato agenda e
+consente di passare al giorno precedente o successivo.
 Se il record di un corso non elenca ancora gli insegnamenti, l'app cerca quelli
 associati al suo codice nell'elenco generale pubblicato dal portale per lo
 stesso anno accademico.

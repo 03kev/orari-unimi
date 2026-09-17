@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.School
+import androidx.compose.material.icons.outlined.ViewWeek
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -67,7 +68,7 @@ fun DegreeBadge(type: DegreeType) {
 @Composable
 fun CourseDetailScreen(
     course: SearchItem, year: String, favorite: Boolean, savedSubjects: List<SavedSubject>,
-    onToggleFavorite: () -> Unit, onOpenCalendar: () -> Unit,
+    onToggleFavorite: () -> Unit, onOpenCalendar: () -> Unit, onOpenAgenda: () -> Unit,
     onOpenTeaching: (CourseTeaching) -> Unit, onToggleTeaching: (CourseTeaching) -> Unit
 ) {
     val type = course.degreeType ?: DegreeType.OTHER
@@ -82,8 +83,17 @@ fun CourseDetailScreen(
         item {
             Column {
                 DegreeBadge(type)
-                Text(course.name, Modifier.padding(top = 12.dp),
-                    style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Row(Modifier.fillMaxWidth().padding(top = 12.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text(course.name, Modifier.weight(1f),
+                        style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Surface(shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        IconButton(onClick = onOpenAgenda, modifier = Modifier.size(44.dp)) {
+                            Icon(Icons.Outlined.ViewWeek, contentDescription = "Apri vista agenda del corso")
+                        }
+                    }
+                }
                 Text("${yearLabel(year)} · $count insegnamenti disponibili",
                     Modifier.padding(top = 5.dp), style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)

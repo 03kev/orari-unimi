@@ -3,12 +3,15 @@ package app.orariunimi
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -82,12 +85,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.Instant
@@ -262,7 +267,7 @@ fun SavedScreen(
     saved: List<SavedSubject>,
     personalLessons: List<Lesson>?, loadingPersonal: Boolean,
     onOpen: (SavedSubject) -> Unit, onCombined: () -> Unit,
-    onOpenNext: (LocalDate) -> Unit, onConflicts: () -> Unit, onAdd: () -> Unit,
+    onOpenNext: (LocalDate) -> Unit, onAgenda: () -> Unit, onAdd: () -> Unit,
     onRemove: (SavedSubject) -> Unit, onClear: () -> Unit
 ) {
     var confirmClear by remember { mutableStateOf(false) }
@@ -284,8 +289,8 @@ fun SavedScreen(
                     fontWeight = FontWeight.Bold)
                 if (saved.isNotEmpty()) Surface(shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    IconButton(onClick = onConflicts, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.ViewWeek, contentDescription = "Apri vista settimanale")
+                    IconButton(onClick = onAgenda, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Outlined.ViewWeek, contentDescription = "Apri vista agenda")
                     }
                 }
             }
@@ -387,131 +392,196 @@ private fun NextLessonCard(lessons: List<Lesson>?, loading: Boolean, onOpen: (Lo
 }
 
 @Composable
-fun WeeklyScheduleScreen(
+fun ScheduleAgendaScreen(
     lessons: List<Lesson>?, loading: Boolean, weekend: Boolean, onOpenDay: (LocalDate) -> Unit
 ) {
-    var week by remember { mutableStateOf(startOfWeek(LocalDate.now())) }
-    val days = (0 until if (weekend) 7 else 5).map { week.plusDays(it.toLong()) }
+    var range by remember { mutableStateOf(AgendaRange.WEEK) }
+    var anchorDay by remember { mutableStateOf(openingDay(LocalDate.now(), weekend)) }
+    val week = startOfWeek(anchorDay)
+    val days = if (range == AgendaRange.DAY) listOf(anchorDay) else
+        (0 until if (weekend) 7 else 5).map { week.plusDays(it.toLong()) }
     val weekEnd = week.plusDays(if (weekend) 7 else 5)
-    val visibleLessons = remember(lessons, week, weekend) {
-        lessons.orEmpty().filter { !it.date.isBefore(week) && it.date.isBefore(weekEnd) }
+    val visibleLessons = remember(lessons, range, anchorDay, week, weekend) {
+        if (range == AgendaRange.DAY) lessonsForDay(lessons.orEmpty(), anchorDay)
+        else lessons.orEmpty().filter { !it.date.isBefore(week) && it.date.isBefore(weekEnd) }
     }
     val placements = remember(visibleLessons) { timelineLessons(visibleLessons) }
     val horizontal = rememberScrollState()
     val vertical = rememberScrollState()
-    val dayWidth = 138.dp
     val timeWidth = 58.dp
     val slotHeight = 52.dp
-    val firstMinute = 7 * 60 + 30
-    val lastMinute = 21 * 60
+    val firstMinute = 8 * 60 + 30
+    val lastMinute = 19 * 60 + 30
     val slots = (lastMinute - firstMinute) / 30
     val gridHeight = slotHeight * slots
-    val dayWidthPixels = with(LocalDensity.current) { dayWidth.roundToPx() }
-
-    LaunchedEffect(horizontal.maxValue, week, weekend) {
-        val todayIndex = days.indexOf(LocalDate.now())
-        if (horizontal.maxValue > 0 && todayIndex >= 0) {
-            horizontal.scrollTo((todayIndex * dayWidthPixels).coerceAtMost(horizontal.maxValue))
-        }
-    }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { week = week.minusWeeks(1) }) {
-                Icon(Icons.Outlined.ChevronLeft, contentDescription = "Settimana precedente")
+            IconButton(onClick = {
+                anchorDay = if (range == AgendaRange.DAY)
+                    adjacentCalendarDay(anchorDay, -1, weekend) else anchorDay.minusWeeks(1)
+            }) {
+                Icon(Icons.Outlined.ChevronLeft,
+                    contentDescription = if (range == AgendaRange.DAY) "Giorno precedente" else "Settimana precedente")
             }
             Column(Modifier.weight(1f)) {
-                Text("SETTIMANA", style = MaterialTheme.typography.labelSmall,
+                Text(if (range == AgendaRange.DAY) "GIORNO" else "SETTIMANA",
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                Text("${week.format(dateShort)} – ${week.plusDays(6).format(dateShort)}",
+                Text(if (range == AgendaRange.DAY)
+                    anchorDay.format(dateLong).replaceFirstChar { it.titlecase(italian) }
+                else "${week.format(dateShort)} – ${week.plusDays(6).format(dateShort)}",
                     style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }
-            TextButton(onClick = { week = startOfWeek(LocalDate.now()) }) { Text("Oggi") }
-            IconButton(onClick = { week = week.plusWeeks(1) }) {
-                Icon(Icons.Outlined.ChevronRight, contentDescription = "Settimana successiva")
+            TextButton(onClick = { anchorDay = openingDay(LocalDate.now(), weekend) }) { Text("Oggi") }
+            IconButton(onClick = {
+                anchorDay = if (range == AgendaRange.DAY)
+                    adjacentCalendarDay(anchorDay, 1, weekend) else anchorDay.plusWeeks(1)
+            }) {
+                Icon(Icons.Outlined.ChevronRight,
+                    contentDescription = if (range == AgendaRange.DAY) "Giorno successivo" else "Settimana successiva")
             }
+        }
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = range == AgendaRange.DAY, onClick = { range = AgendaRange.DAY },
+                label = { Text("Giorno") })
+            FilterChip(selected = range == AgendaRange.WEEK, onClick = { range = AgendaRange.WEEK },
+                label = { Text("Settimana") })
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         when {
             lessons == null && loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-            else -> Row(Modifier.fillMaxSize().verticalScroll(vertical)) {
-                Column(Modifier.width(timeWidth)) {
-                    Box(Modifier.width(timeWidth).height(66.dp), contentAlignment = Alignment.BottomCenter) {
-                        Text("ORA", Modifier.padding(bottom = 9.dp), style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Box(Modifier.width(timeWidth).height(gridHeight)) {
-                        repeat(slots + 1) { index ->
-                            val minute = firstMinute + index * 30
-                            Text(LocalTime.of(minute / 60, minute % 60).format(updateTime),
-                                modifier = Modifier.width(timeWidth).offset(y = slotHeight * index - 8.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1)
+            else -> BoxWithConstraints(Modifier.fillMaxSize()) {
+                val availableDayWidth = maxWidth - timeWidth
+                val dayWidth = if (range == AgendaRange.DAY && availableDayWidth > 240.dp)
+                    availableDayWidth else if (range == AgendaRange.DAY) 240.dp else 138.dp
+                val dayWidthPixels = with(LocalDensity.current) { dayWidth.roundToPx() }
+
+                LaunchedEffect(horizontal.maxValue, range, anchorDay, weekend, dayWidthPixels) {
+                    if (range == AgendaRange.DAY) horizontal.scrollTo(0)
+                    else {
+                        val todayIndex = days.indexOf(LocalDate.now())
+                        if (horizontal.maxValue > 0 && todayIndex >= 0) {
+                            horizontal.scrollTo((todayIndex * dayWidthPixels).coerceAtMost(horizontal.maxValue))
                         }
                     }
                 }
-                Box(Modifier.weight(1f)) {
-                    Column(Modifier.horizontalScroll(horizontal)) {
-                        Row {
-                            days.forEach { day ->
-                                val today = day == LocalDate.now()
-                                Surface(color = if (today) MaterialTheme.colorScheme.primaryContainer
-                                    else MaterialTheme.colorScheme.surface,
-                                    modifier = Modifier.width(dayWidth).height(66.dp)) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center) {
-                                        Text(day.dayOfWeek.getDisplayName(TextStyle.SHORT, italian).uppercase(italian),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = if (today) MaterialTheme.colorScheme.primary
-                                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontWeight = FontWeight.Bold)
-                                        Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.Bold)
+
+                Column(
+                    Modifier.fillMaxSize().clipToBounds().pointerInput(horizontal, vertical) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            horizontal.dispatchRawDelta(-dragAmount.x)
+                            vertical.dispatchRawDelta(-dragAmount.y)
+                        }
+                    }
+                ) {
+                    Row(Modifier.fillMaxWidth().height(66.dp)) {
+                        Box(
+                            Modifier.width(timeWidth).fillMaxHeight()
+                                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                            contentAlignment = Alignment.BottomCenter
+                        ) {
+                            Text("ORA", Modifier.padding(bottom = 9.dp), style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Box(Modifier.weight(1f).clipToBounds()) {
+                            Row(Modifier.horizontalScroll(horizontal, enabled = false)) {
+                                days.forEach { day ->
+                                    val today = day == LocalDate.now()
+                                    Surface(color = if (today) MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.surface,
+                                        modifier = Modifier.width(dayWidth).fillMaxHeight()
+                                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center) {
+                                            Text(day.dayOfWeek.getDisplayName(TextStyle.SHORT, italian).uppercase(italian),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = if (today) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontWeight = FontWeight.Bold)
+                                            Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
                         }
-                        Box(Modifier.width(dayWidth * days.size).height(gridHeight)) {
-                        val gridColor = MaterialTheme.colorScheme.outlineVariant
-                        Canvas(Modifier.fillMaxSize()) {
+                    }
+                    Row(Modifier.weight(1f).fillMaxWidth().clipToBounds()
+                        .verticalScroll(vertical, enabled = false)) {
+                        Box(
+                            Modifier.width(timeWidth).height(gridHeight)
+                                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            val gridColor = MaterialTheme.colorScheme.outlineVariant
+                            Canvas(Modifier.fillMaxSize()) {
+                                repeat(slots + 1) { index ->
+                                    val y = slotHeight.toPx() * index
+                                    drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(0f, y),
+                                        end = androidx.compose.ui.geometry.Offset(size.width, y), strokeWidth = 1f)
+                                }
+                            }
                             repeat(slots + 1) { index ->
-                                val y = slotHeight.toPx() * index
-                                drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(0f, y),
-                                    end = androidx.compose.ui.geometry.Offset(size.width, y), strokeWidth = 1f)
-                            }
-                            repeat(days.size + 1) { index ->
-                                val x = dayWidth.toPx() * index
-                                drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(x, 0f),
-                                    end = androidx.compose.ui.geometry.Offset(x, size.height), strokeWidth = 1f)
-                            }
-                        }
-                        placements.forEach { placement ->
-                            val lesson = placement.lesson
-                            val dayIndex = days.indexOf(lesson.date)
-                            val start = timelineMinutes(lesson.start).coerceAtLeast(firstMinute)
-                            val end = timelineMinutes(lesson.end).coerceAtMost(lastMinute)
-                            if (dayIndex >= 0 && end > start) {
-                                val laneWidth = dayWidth / placement.laneCount
-                                val top = slotHeight * ((start - firstMinute) / 30f)
-                                val height = maxOf(44.dp, slotHeight * ((end - start) / 30f) - 4.dp)
-                                TimelineLessonCard(
-                                    lesson = lesson,
-                                    compact = placement.laneCount > 1,
-                                    modifier = Modifier
-                                        .offset(
-                                            x = dayWidth * dayIndex + laneWidth * placement.lane + 2.dp,
-                                            y = top + 2.dp
-                                        )
-                                        .width(laneWidth - 4.dp)
-                                        .height(height),
-                                    onClick = { onOpenDay(lesson.date) }
-                                )
+                                val minute = firstMinute + index * 30
+                                val labelOffset = when (index) {
+                                    0 -> 2.dp
+                                    slots -> gridHeight - 18.dp
+                                    else -> slotHeight * index - 8.dp
+                                }
+                                Text(LocalTime.of(minute / 60, minute % 60).format(updateTime),
+                                    modifier = Modifier.width(timeWidth).offset(y = labelOffset),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1)
                             }
                         }
+                        Box(Modifier.weight(1f).clipToBounds()) {
+                            Box(Modifier.horizontalScroll(horizontal, enabled = false)) {
+                                Box(Modifier.width(dayWidth * days.size).height(gridHeight)) {
+                                    val gridColor = MaterialTheme.colorScheme.outlineVariant
+                                    Canvas(Modifier.fillMaxSize()) {
+                                        repeat(slots + 1) { index ->
+                                            val y = slotHeight.toPx() * index
+                                            drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(0f, y),
+                                                end = androidx.compose.ui.geometry.Offset(size.width, y), strokeWidth = 1f)
+                                        }
+                                        repeat(days.size + 1) { index ->
+                                            val x = dayWidth.toPx() * index
+                                            drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(x, 0f),
+                                                end = androidx.compose.ui.geometry.Offset(x, size.height), strokeWidth = 1f)
+                                        }
+                                    }
+                                    placements.forEach { placement ->
+                                        val lesson = placement.lesson
+                                        val dayIndex = days.indexOf(lesson.date)
+                                        val start = timelineMinutes(lesson.start).coerceAtLeast(firstMinute)
+                                        val end = timelineMinutes(lesson.end).coerceAtMost(lastMinute)
+                                        if (dayIndex >= 0 && end > start) {
+                                            val laneWidth = dayWidth / placement.laneCount
+                                            val top = slotHeight * ((start - firstMinute) / 30f)
+                                            val height = maxOf(44.dp, slotHeight * ((end - start) / 30f) - 4.dp)
+                                            TimelineLessonCard(
+                                                lesson = lesson,
+                                                compact = placement.laneCount > 1,
+                                                modifier = Modifier
+                                                    .offset(
+                                                        x = dayWidth * dayIndex + laneWidth * placement.lane + 2.dp,
+                                                        y = top + 2.dp
+                                                    )
+                                                    .width(laneWidth - 4.dp)
+                                                    .height(height),
+                                                onClick = { onOpenDay(lesson.date) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -519,6 +589,8 @@ fun WeeklyScheduleScreen(
         }
     }
 }
+
+private enum class AgendaRange { DAY, WEEK }
 
 @Composable
 private fun TimelineLessonCard(lesson: Lesson, compact: Boolean, modifier: Modifier, onClick: () -> Unit) {

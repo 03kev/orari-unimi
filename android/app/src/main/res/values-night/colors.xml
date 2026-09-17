@@ -2,6 +2,7 @@
 <resources>
     <color name="widget_background">#182131</color>
     <color name="widget_border">#35445F</color>
+    <color name="widget_card">#222D40</color>
     <color name="widget_accent">#AFC6FF</color>
     <color name="widget_text">#EEF1F8</color>
     <color name="widget_text_secondary">#BDC6D7</color>

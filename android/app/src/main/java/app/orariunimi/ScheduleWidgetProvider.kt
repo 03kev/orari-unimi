@@ -6,7 +6,6 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import java.io.File
@@ -73,45 +72,50 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             dayPendingIntent(context, appWidgetId, ACTION_PREVIOUS, 1))
         views.setOnClickPendingIntent(R.id.widget_next,
             dayPendingIntent(context, appWidgetId, ACTION_NEXT, 2))
-        views.setOnClickPendingIntent(R.id.widget_subject,
+        views.setOnClickPendingIntent(R.id.widget_title,
             dayPendingIntent(context, appWidgetId, ACTION_TODAY, 3))
+        views.removeAllViews(R.id.widget_lessons)
         views.setTextViewText(R.id.widget_title, when (selected) {
-            today -> "Lezioni di oggi"
-            today.plusDays(1) -> "Lezioni di domani"
-            else -> "Lezioni del giorno"
+            today -> "Agenda di oggi"
+            today.plusDays(1) -> "Agenda di domani"
+            else -> "Agenda del giorno"
         })
 
         when {
             saved.isEmpty() -> {
-                views.setTextViewText(R.id.widget_subject, "Nessun insegnamento salvato")
-                views.setTextViewText(R.id.widget_time, "Tocca per aggiungerne uno")
-                views.setViewVisibility(R.id.widget_details, View.GONE)
+                views.setTextViewText(R.id.widget_subject, "Il tuo orario")
+                showWidgetMessage(views, "Nessun insegnamento salvato")
             }
             selectedLessons == null -> {
                 views.setTextViewText(R.id.widget_subject, "Calendario da aggiornare")
-                views.setTextViewText(R.id.widget_time, "Apri l’app per controllare gli orari")
-                views.setViewVisibility(R.id.widget_details, View.GONE)
+                showWidgetMessage(views, "Apri l’app per controllare gli orari")
             }
             selectedLessons.isEmpty() -> {
                 views.setTextViewText(R.id.widget_subject, selected.format(widgetDay)
                     .replaceFirstChar { it.titlecase(Locale.ITALIAN) })
-                views.setTextViewText(R.id.widget_time, "Nessuna lezione")
-                views.setTextViewText(R.id.widget_details, "Tocca la data per tornare a oggi")
-                views.setViewVisibility(R.id.widget_details, View.VISIBLE)
+                showWidgetMessage(views, "Nessuna lezione")
             }
             else -> {
                 val count = selectedLessons.size
-                val day = selected.format(widgetDate).replaceFirstChar { it.titlecase(Locale.ITALIAN) }
+                val day = selected.format(widgetDay).replaceFirstChar { it.titlecase(Locale.ITALIAN) }
                 views.setTextViewText(R.id.widget_subject,
                     "$day · $count ${if (count == 1) "lezione" else "lezioni"}")
-                views.setTextViewText(R.id.widget_time, selectedLessons.joinToString("\n") { lesson ->
-                    val room = lesson.room.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
-                    val cancelled = if (lesson.cancelled) "ANNULLATA · " else ""
-                    "${lesson.start}–${lesson.end}  $cancelled${lesson.subject.ifBlank { "Insegnamento" }}$room"
-                })
-                views.setTextViewTextSize(R.id.widget_time, TypedValue.COMPLEX_UNIT_SP,
-                    if (count > 5) 10f else if (count > 3) 11f else 12f)
-                views.setViewVisibility(R.id.widget_details, View.GONE)
+                views.setViewVisibility(R.id.widget_lessons, View.VISIBLE)
+                views.setViewVisibility(R.id.widget_empty, View.GONE)
+                selectedLessons.forEach { lesson ->
+                    val row = RemoteViews(context.packageName, R.layout.widget_lesson_row)
+                    row.setTextViewText(R.id.widget_lesson_time, "${lesson.start}\n${lesson.end}")
+                    row.setTextViewText(R.id.widget_lesson_subject,
+                        (if (lesson.cancelled) "ANNULLATA · " else "") +
+                            lesson.subject.ifBlank { "Insegnamento" })
+                    row.setTextViewText(R.id.widget_lesson_room,
+                        listOf(lesson.room, lesson.teacher).filter { it.isNotBlank() }.joinToString(" · ")
+                            .ifBlank { lesson.type.ifBlank { "Lezione" } })
+                    val accent = if (lesson.cancelled) context.getColor(R.color.widget_warning)
+                        else widgetLessonColors[(lesson.subjectCode.hashCode() and Int.MAX_VALUE) % widgetLessonColors.size]
+                    row.setInt(R.id.widget_lesson_accent, "setBackgroundColor", accent)
+                    views.addView(R.id.widget_lessons, row)
+                }
             }
         }
         return views
@@ -122,8 +126,17 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
         private const val ACTION_NEXT = "app.orariunimi.widget.NEXT"
         private const val ACTION_TODAY = "app.orariunimi.widget.TODAY"
         private const val WIDGET_PREFERENCES = "schedule_widget"
-        private val widgetDate = DateTimeFormatter.ofPattern("EEE d MMM", Locale.ITALIAN)
         private val widgetDay = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ITALIAN)
+        private val widgetLessonColors = intArrayOf(
+            0xFF6F91F2.toInt(), 0xFF40B9AE.toInt(), 0xFFE08188.toInt(), 0xFFC49A3A.toInt(),
+            0xFFAF8AE1.toInt(), 0xFF62A7D8.toInt(), 0xFFDC925E.toInt(), 0xFF7CAD70.toInt()
+        )
+
+        private fun showWidgetMessage(views: RemoteViews, message: String) {
+            views.setViewVisibility(R.id.widget_lessons, View.GONE)
+            views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
+            views.setTextViewText(R.id.widget_empty, message)
+        }
 
         private fun dayKey(appWidgetId: Int) = "selected_day_$appWidgetId"
 

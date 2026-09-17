@@ -13,6 +13,7 @@ import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.ViewWeek
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -70,7 +71,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     val snackbar = remember { SnackbarHostState() }
     var tab by remember { mutableIntStateOf(initialTab) }
     var settings by remember { mutableStateOf(false) }
-    var weeklyOpen by remember { mutableStateOf(false) }
+    var agendaOpen by remember { mutableStateOf(false) }
     var calendar by remember { mutableStateOf<CalendarData?>(null) }
     var courseDetail by remember { mutableStateOf<CourseDetailData?>(null) }
     var years by remember { mutableStateOf<List<AcademicYear>>(emptyList()) }
@@ -97,7 +98,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     LaunchedEffect(openSavedRequest) {
         if (openSavedRequest > 0) {
             settings = false
-            weeklyOpen = false
+            agendaOpen = false
             calendar = null
             courseDetail = null
             tab = 1
@@ -193,12 +194,13 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
 
     fun showCalendar(
         title: String, yearCode: String, source: SearchItem?,
-        combined: List<SavedSubject>? = null, openDay: LocalDate? = null
+        combined: List<SavedSubject>? = null, openDay: LocalDate? = null,
+        openAgenda: Boolean = false
     ) {
         calendarLoadId++
         val loadId = calendarLoadId
         scope.launch {
-            weeklyOpen = false
+            agendaOpen = false
             error = null
             val sameCalendar = calendar?.let {
                 it.title == title && it.year == yearCode && it.source?.kind == source?.kind &&
@@ -223,6 +225,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                 }
                 calendar = CalendarData(title, snapshot.lessons, yearCode, source,
                     snapshot.updatedAtMillis, offline, combined)
+                if (openAgenda) agendaOpen = true
             }
 
             val cached = withContext(Dispatchers.IO) {
@@ -305,25 +308,26 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
         calendarRefreshing = false
         busy = false
         when {
+            agendaOpen -> agendaOpen = false
             calendar != null -> calendar = null
             courseDetail != null -> courseDetail = null
-            weeklyOpen -> weeklyOpen = false
             else -> settings = false
         }
         error = null
     }
 
-    BackHandler(enabled = calendar != null || courseDetail != null || weeklyOpen || settings) { goBack() }
+    BackHandler(enabled = calendar != null || courseDetail != null || agendaOpen || settings) { goBack() }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     when {
+                        agendaOpen -> Text(if (calendar != null) "Agenda · ${calendar!!.title}" else "Agenda personale",
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
                         calendar != null -> Text(calendar!!.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         courseDetail != null -> Text(courseDetail!!.course.name, maxLines = 1,
                             overflow = TextOverflow.Ellipsis)
-                        weeklyOpen -> Text("Vista settimanale")
                         settings -> Text("Preferenze")
                         else -> Column {
                             Text("Orari UNIMI", style = MaterialTheme.typography.titleLarge)
@@ -333,20 +337,23 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                     }
                 },
                 navigationIcon = {
-                    if (calendar != null || courseDetail != null || weeklyOpen || settings) IconButton(onClick = ::goBack) {
+                    if (calendar != null || courseDetail != null || agendaOpen || settings) IconButton(onClick = ::goBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Indietro")
                     }
                 },
                 actions = {
                     val shown = calendar
-                    if (shown?.source?.kind == SearchKind.SUBJECT) {
+                    if (shown != null && !agendaOpen) IconButton(onClick = { agendaOpen = true; error = null }) {
+                        Icon(Icons.Outlined.ViewWeek, contentDescription = "Apri vista agenda")
+                    }
+                    if (shown?.source?.kind == SearchKind.SUBJECT && !agendaOpen) {
                         val subject = SavedSubject(shown.year, shown.source.code, shown.source.name)
                         val isSaved = saved.any { it.year == subject.year && it.code == subject.code }
                         IconButton(onClick = { toggleSaved(subject) }) {
                             Icon(if (isSaved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
                             contentDescription = if (isSaved) "Rimuovi dai miei orari" else "Salva nei miei orari") }
-                    } else if (shown?.source?.kind == SearchKind.COURSE ||
-                        calendar == null && courseDetail != null) {
+                    } else if (!agendaOpen && (shown?.source?.kind == SearchKind.COURSE ||
+                        calendar == null && courseDetail != null)) {
                         val detail = if (shown?.source?.kind == SearchKind.COURSE)
                             CourseDetailData(shown.year, shown.source) else courseDetail!!
                         val favorite = FavoriteCourse(detail.year, detail.course.code, detail.course.name,
@@ -357,7 +364,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                                 contentDescription = if (isFavorite) "Rimuovi corso dai preferiti"
                                     else "Salva corso nei preferiti")
                         }
-                    } else if (calendar == null && courseDetail == null && !weeklyOpen && !settings) {
+                    } else if (calendar == null && courseDetail == null && !agendaOpen && !settings) {
                         IconButton(onClick = { settings = true; error = null }) {
                             Icon(Icons.Outlined.Settings, contentDescription = "Preferenze")
                         }
@@ -366,7 +373,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
             )
         },
         bottomBar = {
-            if (calendar == null && courseDetail == null && !weeklyOpen && !settings) NavigationBar {
+            if (calendar == null && courseDetail == null && !agendaOpen && !settings) NavigationBar {
                 NavigationBarItem(
                     selected = tab == 0, onClick = { tab = 0; error = null },
                     icon = { Icon(Icons.Outlined.Search, contentDescription = null) }, label = { Text("Esplora") }
@@ -385,7 +392,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
-                if (loadingEntries && tab == 0 && calendar == null && courseDetail == null && !weeklyOpen && !settings || busy) {
+                if (loadingEntries && tab == 0 && calendar == null && courseDetail == null && !agendaOpen && !settings || busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
                 if (error != null) ErrorBanner(error!!, onDismiss = { error = null },
@@ -395,12 +402,16 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                     }} else null)
                 when {
                     settings -> SettingsScreen(weekend, ::toggleWeekend)
-                    weeklyOpen -> WeeklyScheduleScreen(
-                        lessons = savedSchedule?.lessons,
-                        loading = savedScheduleLoading,
+                    agendaOpen -> ScheduleAgendaScreen(
+                        lessons = calendar?.lessons ?: savedSchedule?.lessons,
+                        loading = if (calendar != null) calendarRefreshing else savedScheduleLoading,
                         weekend = weekend,
                         onOpenDay = { day ->
-                            showCalendar("I miei orari", year?.code.orEmpty(), null, saved, day)
+                            if (calendar != null) {
+                                agendaOpen = false
+                                week = startOfWeek(day)
+                                selectedDay = day
+                            } else showCalendar("I miei orari", year?.code.orEmpty(), null, saved, day)
                         }
                     )
                     calendar != null -> {
@@ -426,6 +437,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                             savedSubjects = saved,
                             onToggleFavorite = { toggleFavorite(favorite) },
                             onOpenCalendar = { showCalendar(detail.course.name, detail.year, detail.course) },
+                            onOpenAgenda = { showCalendar(detail.course.name, detail.year, detail.course,
+                                openAgenda = true) },
                             onOpenTeaching = { teaching ->
                                 showCalendar(teaching.name, detail.year,
                                     SearchItem(teaching.code, teaching.name, SearchKind.SUBJECT))
@@ -459,7 +472,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                         onOpenNext = { day ->
                             showCalendar("I miei orari", year?.code.orEmpty(), null, saved, day)
                         },
-                        onConflicts = { weeklyOpen = true; error = null },
+                        onAgenda = { agendaOpen = true; error = null },
                         onAdd = { tab = 0; kind = SearchKind.SUBJECT; query = "" },
                         onRemove = { store.remove(it); saved = store.saved() },
                         onClear = { store.clear(); saved = emptyList() }
