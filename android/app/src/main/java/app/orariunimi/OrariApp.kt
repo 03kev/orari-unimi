@@ -13,13 +13,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.EventNote
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.ViewWeek
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -82,6 +82,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     var tab by remember { mutableIntStateOf(initialTab) }
     var settings by remember { mutableStateOf(false) }
     var notificationsOpen by remember { mutableStateOf(false) }
+    var notificationSettingsOpen by remember { mutableStateOf(false) }
     var agendaOpen by remember { mutableStateOf(false) }
     var calendar by remember { mutableStateOf<CalendarData?>(null) }
     var courseDetail by remember { mutableStateOf<CourseDetailData?>(null) }
@@ -105,6 +106,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     var weekend by remember { mutableStateOf(store.showWeekend) }
     var notificationPreferences by remember { mutableStateOf(store.notificationPreferences) }
     var notificationEntries by remember { mutableStateOf(store.notifications()) }
+    var notificationRefreshing by remember { mutableStateOf(false) }
     var week by remember { mutableStateOf(startOfWeek(LocalDate.now())) }
     var selectedDay by remember { mutableStateOf(LocalDate.now()) }
     var updateState by remember { mutableStateOf<AppUpdateState>(AppUpdateState.Idle) }
@@ -148,6 +150,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         if (openSavedRequest > 0) {
             settings = false
             notificationsOpen = false
+            notificationSettingsOpen = false
             agendaOpen = false
             calendar = null
             courseDetail = null
@@ -158,6 +161,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     LaunchedEffect(openNotificationsRequest) {
         if (openNotificationsRequest > 0) {
             settings = false
+            notificationSettingsOpen = false
             agendaOpen = false
             calendar = null
             courseDetail = null
@@ -283,6 +287,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
 
     fun openSettings() {
         notificationsOpen = false
+        notificationSettingsOpen = false
         settings = true
         error = null
         if (updateState is AppUpdateState.Idle) checkForUpdate()
@@ -290,11 +295,42 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
 
     fun openNotifications() {
         settings = false
+        notificationSettingsOpen = false
         notificationEntries = store.notifications()
         store.markNotificationsRead()
         notificationEntries = store.notifications()
         notificationsOpen = true
         error = null
+    }
+
+    fun openNotificationSettings() {
+        settings = false
+        notificationsOpen = false
+        notificationSettingsOpen = true
+        error = null
+    }
+
+    fun refreshNotifications() {
+        if (notificationRefreshing) return
+        scope.launch {
+            notificationRefreshing = true
+            val ids = NotificationScheduler.refreshNow(context)
+            val completed = if (ids.isEmpty()) {
+                delay(450)
+                null
+            } else runCatching {
+                withContext(Dispatchers.IO) { NotificationScheduler.waitForRefresh(context, ids) }
+            }.getOrDefault(false)
+            notificationEntries = store.notifications()
+            store.markNotificationsRead()
+            notificationEntries = store.notifications()
+            notificationRefreshing = false
+            snackbar.showSnackbar(when (completed) {
+                true -> "Controllo notifiche completato"
+                false -> "Il controllo continuerà in background"
+                null -> "Attiva almeno un tipo di notifica nelle preferenze"
+            })
+        }
     }
 
     fun setNotificationPreferences(updated: NotificationPreferences, resetBaseline: Boolean = false) {
@@ -347,6 +383,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         openAgenda: Boolean = false
     ) {
         notificationsOpen = false
+        notificationSettingsOpen = false
         settings = false
         calendarLoadId++
         val loadId = calendarLoadId
@@ -462,25 +499,30 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
             agendaOpen -> agendaOpen = false
             calendar != null -> calendar = null
             courseDetail != null -> courseDetail = null
+            notificationSettingsOpen -> {
+                notificationSettingsOpen = false
+                settings = true
+            }
             settings -> settings = false
             else -> notificationsOpen = false
         }
         error = null
     }
 
-    BackHandler(enabled = calendar != null || courseDetail != null || agendaOpen || settings || notificationsOpen) { goBack() }
+    BackHandler(enabled = calendar != null || courseDetail != null || agendaOpen || settings ||
+        notificationsOpen || notificationSettingsOpen) { goBack() }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     when {
-                        agendaOpen -> Text(if (calendar != null) "Agenda · ${calendar!!.title}" else "Agenda personale",
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        agendaOpen -> Text("Agenda")
                         calendar != null -> Text(calendar!!.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         courseDetail != null -> Text(courseDetail!!.course.name, maxLines = 1,
                             overflow = TextOverflow.Ellipsis)
                         settings -> Text("Preferenze")
+                        notificationSettingsOpen -> Text("Impostazioni notifiche")
                         notificationsOpen -> Text("Notifiche")
                         else -> Column {
                             Text("Orari UNIMI", style = MaterialTheme.typography.titleLarge)
@@ -490,14 +532,15 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                     }
                 },
                 navigationIcon = {
-                    if (calendar != null || courseDetail != null || agendaOpen || settings || notificationsOpen) IconButton(onClick = ::goBack) {
+                    if (calendar != null || courseDetail != null || agendaOpen || settings || notificationsOpen ||
+                        notificationSettingsOpen) IconButton(onClick = ::goBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Indietro")
                     }
                 },
                 actions = {
                     val shown = calendar
                     if (shown != null && !agendaOpen) IconButton(onClick = { agendaOpen = true; error = null }) {
-                        Icon(Icons.Outlined.ViewWeek, contentDescription = "Apri vista agenda")
+                        Icon(Icons.AutoMirrored.Outlined.EventNote, contentDescription = "Apri vista agenda")
                     }
                     if (shown?.source?.kind == SearchKind.SUBJECT && !agendaOpen) {
                         val subject = SavedSubject(shown.year, shown.source.code, shown.source.name)
@@ -517,7 +560,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                                 contentDescription = if (isFavorite) "Rimuovi corso dai preferiti"
                                     else "Salva corso nei preferiti")
                         }
-                    } else if (calendar == null && courseDetail == null && !agendaOpen && !settings && !notificationsOpen) {
+                    } else if (calendar == null && courseDetail == null && !agendaOpen && !settings &&
+                        !notificationsOpen && !notificationSettingsOpen) {
                         IconButton(onClick = ::openNotifications) {
                             BadgedBox(badge = {
                                 val unread = notificationEntries.count { !it.read }
@@ -534,7 +578,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
             )
         },
         bottomBar = {
-            if (calendar == null && courseDetail == null && !agendaOpen && !settings && !notificationsOpen) NavigationBar {
+            if (calendar == null && courseDetail == null && !agendaOpen && !settings && !notificationsOpen &&
+                !notificationSettingsOpen) NavigationBar {
                 NavigationBarItem(
                     selected = tab == 0, onClick = { tab = 0; error = null },
                     icon = { Icon(Icons.Outlined.Search, contentDescription = null) }, label = { Text("Esplora") }
@@ -553,7 +598,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
-                if (loadingEntries && tab == 0 && calendar == null && courseDetail == null && !agendaOpen && !settings && !notificationsOpen || busy) {
+                if (loadingEntries && tab == 0 && calendar == null && courseDetail == null && !agendaOpen &&
+                    !settings && !notificationsOpen && !notificationSettingsOpen || busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
                 if (error != null) ErrorBanner(error!!, onDismiss = { error = null },
@@ -562,8 +608,30 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                         entriesRetry++
                     }} else null)
                 when {
+                    notificationSettingsOpen -> NotificationSettingsScreen(
+                        notificationPreferences = notificationPreferences,
+                        onImportantChanges = {
+                            setNotificationPreferences(notificationPreferences.copy(
+                                importantChanges = !notificationPreferences.importantChanges), resetBaseline = true)
+                        },
+                        onLessonReminders = {
+                            store.lastLessonReminderKey = null
+                            setNotificationPreferences(notificationPreferences.copy(
+                                lessonReminders = !notificationPreferences.lessonReminders))
+                        },
+                        onAppUpdates = {
+                            setNotificationPreferences(notificationPreferences.copy(
+                                appUpdates = !notificationPreferences.appUpdates))
+                        },
+                        onReminderMinutes = { minutes ->
+                            store.lastLessonReminderKey = null
+                            setNotificationPreferences(notificationPreferences.copy(reminderMinutes = minutes))
+                        }
+                    )
                     notificationsOpen -> NotificationCenterScreen(
                         entries = notificationEntries,
+                        refreshing = notificationRefreshing,
+                        onRefresh = ::refreshNotifications,
                         onDelete = { id ->
                             store.deleteNotification(id)
                             notificationEntries = store.notifications()
@@ -587,23 +655,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                         onInstallUpdate = ::installUpdate,
                         notificationPreferences = notificationPreferences,
                         onNotificationsEnabled = ::toggleNotifications,
-                        onImportantChanges = {
-                            setNotificationPreferences(notificationPreferences.copy(
-                                importantChanges = !notificationPreferences.importantChanges), resetBaseline = true)
-                        },
-                        onLessonReminders = {
-                            store.lastLessonReminderKey = null
-                            setNotificationPreferences(notificationPreferences.copy(
-                                lessonReminders = !notificationPreferences.lessonReminders))
-                        },
-                        onAppUpdates = {
-                            setNotificationPreferences(notificationPreferences.copy(
-                                appUpdates = !notificationPreferences.appUpdates))
-                        },
-                        onReminderMinutes = { minutes ->
-                            store.lastLessonReminderKey = null
-                            setNotificationPreferences(notificationPreferences.copy(reminderMinutes = minutes))
-                        }
+                        onOpenNotificationSettings = ::openNotificationSettings
                     )
                     agendaOpen -> ScheduleAgendaScreen(
                         lessons = calendar?.lessons ?: savedSchedule?.lessons,

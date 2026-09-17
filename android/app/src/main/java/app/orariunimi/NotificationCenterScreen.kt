@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +33,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,47 +56,73 @@ import java.util.Locale
 @Composable
 fun NotificationCenterScreen(
     entries: List<AppNotificationEntry>,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
     onDelete: (String) -> Unit,
     onOpen: (AppNotificationEntry) -> Unit
 ) {
-    if (entries.isEmpty()) {
-        Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.size(72.dp)) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Outlined.NotificationsActive, contentDescription = null,
-                            modifier = Modifier.size(34.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    val pullState = rememberPullToRefreshState()
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = onRefresh,
+        state = pullState,
+        modifier = Modifier.fillMaxSize(),
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                state = pullState,
+                isRefreshing = refreshing,
+                modifier = Modifier.align(Alignment.TopCenter),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    ) {
+        if (entries.isEmpty()) {
+            LazyColumn(Modifier.fillMaxSize()) {
+                item {
+                    Box(Modifier.fillParentMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                        Column(Modifier.offset(y = (-72).dp),
+                            horizontalAlignment = Alignment.CenterHorizontally) {
+                            Surface(shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                modifier = Modifier.size(72.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Outlined.NotificationsActive, contentDescription = null,
+                                        modifier = Modifier.size(34.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                            Spacer(Modifier.height(18.dp))
+                            Text("Nessuna notifica", style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(6.dp))
+                            Text("Le variazioni, i promemoria e gli aggiornamenti che attivi compariranno qui.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center)
+                        }
                     }
                 }
-                Spacer(Modifier.height(18.dp))
-                Text("Nessuna notifica", style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(6.dp))
-                Text("Le variazioni, i promemoria e gli aggiornamenti che attivi compariranno qui.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center)
             }
-        }
-        return
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp)
-    ) {
-        itemsIndexed(entries, key = { _, entry -> entry.id }) { index, entry ->
-            val section = dayLabel(entry.timestampMillis)
-            val previousSection = entries.getOrNull(index - 1)?.let { dayLabel(it.timestampMillis) }
-            Column {
-                if (section != previousSection) {
-                    Text(section.uppercase(Locale.ITALIAN), style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 4.dp, top = if (index == 0) 0.dp else 12.dp, bottom = 7.dp))
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                itemsIndexed(entries, key = { _, entry -> entry.id }) { index, entry ->
+                    val section = dayLabel(entry.timestampMillis)
+                    val previousSection = entries.getOrNull(index - 1)?.let { dayLabel(it.timestampMillis) }
+                    Column {
+                        if (section != previousSection) {
+                            Text(section.uppercase(Locale.ITALIAN), style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp,
+                                    top = if (index == 0) 0.dp else 12.dp, bottom = 7.dp))
+                        }
+                        NotificationSwipeRow(entry, onDelete, onOpen)
+                    }
                 }
-                NotificationSwipeRow(entry, onDelete, onOpen)
             }
         }
     }

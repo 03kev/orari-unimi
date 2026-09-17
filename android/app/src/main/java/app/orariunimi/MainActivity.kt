@@ -15,7 +15,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (intent.getBooleanExtra(OPEN_SAVED, false)) openSavedRequest.intValue++
         if (intent.getBooleanExtra(OPEN_NOTIFICATIONS, false)) openNotificationsRequest.intValue++
-        NotificationScheduler.configure(applicationContext)
         enableEdgeToEdge()
         setContent {
             OrariTheme {
@@ -26,6 +25,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        NotificationScheduler.configure(applicationContext, runNow = true)
     }
 
     override fun onNewIntent(intent: Intent) {

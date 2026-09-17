@@ -24,6 +24,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 object NotificationScheduler {
@@ -51,8 +52,6 @@ object NotificationScheduler {
             val periodic = PeriodicWorkRequestBuilder<ScheduleNotificationWorker>(15, TimeUnit.MINUTES)
                 .setConstraints(network).build()
             work.enqueueUniquePeriodicWork(SCHEDULE_PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, periodic)
-            if (runNow) work.enqueueUniqueWork(SCHEDULE_NOW, ExistingWorkPolicy.REPLACE,
-                OneTimeWorkRequestBuilder<ScheduleNotificationWorker>().setConstraints(network).build())
         } else {
             work.cancelUniqueWork(SCHEDULE_PERIODIC)
             work.cancelUniqueWork(SCHEDULE_NOW)
@@ -62,12 +61,57 @@ object NotificationScheduler {
             val periodic = PeriodicWorkRequestBuilder<AppUpdateNotificationWorker>(12, TimeUnit.HOURS)
                 .setConstraints(network).build()
             work.enqueueUniquePeriodicWork(UPDATES_PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, periodic)
-            if (runNow) work.enqueueUniqueWork(UPDATES_NOW, ExistingWorkPolicy.REPLACE,
-                OneTimeWorkRequestBuilder<AppUpdateNotificationWorker>().setConstraints(network).build())
         } else {
             work.cancelUniqueWork(UPDATES_PERIODIC)
             work.cancelUniqueWork(UPDATES_NOW)
         }
+
+        if (runNow) enqueueNow(work, preferences)
+    }
+
+    fun refreshNow(context: Context): List<UUID> {
+        val appContext = context.applicationContext
+        val preferences = LocalStore(appContext).notificationPreferences
+        if (!preferences.enabled) return emptyList()
+        return enqueueNow(WorkManager.getInstance(appContext), preferences)
+    }
+
+    fun waitForRefresh(context: Context, ids: List<UUID>, timeoutMillis: Long = 30_000L): Boolean {
+        if (ids.isEmpty()) return false
+        val work = WorkManager.getInstance(context.applicationContext)
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+        while (System.nanoTime() < deadline) {
+            val states = runCatching {
+                ids.mapNotNull { work.getWorkInfoById(it).get()?.state }
+            }.getOrElse { return false }
+            if (states.size == ids.size && states.all { it.isFinished }) {
+                return states.all { it == androidx.work.WorkInfo.State.SUCCEEDED }
+            }
+            try {
+                Thread.sleep(100)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return false
+            }
+        }
+        return false
+    }
+
+    private fun enqueueNow(work: WorkManager, preferences: NotificationPreferences): List<UUID> {
+        val ids = mutableListOf<UUID>()
+        if (preferences.importantChanges || preferences.lessonReminders) {
+            val request = OneTimeWorkRequestBuilder<ScheduleNotificationWorker>()
+                .setConstraints(network).build()
+            work.enqueueUniqueWork(SCHEDULE_NOW, ExistingWorkPolicy.REPLACE, request)
+            ids += request.id
+        }
+        if (preferences.appUpdates) {
+            val request = OneTimeWorkRequestBuilder<AppUpdateNotificationWorker>()
+                .setConstraints(network).build()
+            work.enqueueUniqueWork(UPDATES_NOW, ExistingWorkPolicy.REPLACE, request)
+            ids += request.id
+        }
+        return ids
     }
 }
 

@@ -4,6 +4,10 @@ Dalla versione 1.5.0 Orari UNIMI può controllare in background gli insegnamenti
 salvati e raccogliere gli avvisi in un centro notifiche interno. Il sistema è
 disattivato per impostazione predefinita. L'utente deve attivare l'interruttore
 generale nelle Preferenze e scegliere singolarmente quali categorie usare.
+Nella versione 1.5.1 le categorie sono raccolte nella schermata
+**Impostazioni notifiche**, accessibile dalla classica riga con freccia che
+compare sotto l'interruttore generale. La scelta dell'anticipo è incorporata
+nel riquadro **Prossima lezione**.
 
 ## Categorie
 
@@ -16,8 +20,9 @@ generale nelle Preferenze e scegliere singolarmente quali categorie usare.
 
 La campanella accanto alle Preferenze mostra il numero di avvisi non letti.
 Aprendola si trovano le notifiche raggruppate per data; uno swipe verso sinistra
-elimina la singola voce. Lo storico contiene al massimo 100 elementi ed è
-salvato solo sul dispositivo.
+elimina la singola voce. Trascinando l'elenco verso il basso si avvia subito un
+nuovo controllo delle categorie abilitate. Lo storico contiene al massimo 100
+elementi ed è salvato solo sul dispositivo.
 
 ## Frequenza e limiti Android
 
@@ -27,7 +32,9 @@ dall'app, non una garanzia di esecuzione esatta: Android può rinviare un
 controllo per batteria, modalità Doze, assenza di rete o limiti imposti dal
 produttore. Gli aggiornamenti dell'app vengono controllati ogni 12 ore. Quando
 si attiva una categoria viene richiesto anche un primo controllo appena la rete
-è disponibile.
+è disponibile. Ogni nuova apertura dell'app richiede inoltre un controllo
+immediato di tutte le categorie abilitate; WorkManager accorpa e sostituisce le
+richieste immediate omonime per evitare controlli simultanei duplicati.
 
 I promemoria dipendono quindi dall'esecuzione concessa dal sistema e non devono
 essere considerati una sveglia esatta. Su Android 13 o successivo serve anche il
