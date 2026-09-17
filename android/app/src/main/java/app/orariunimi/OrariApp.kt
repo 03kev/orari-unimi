@@ -13,13 +13,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.EventNote
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -84,6 +84,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     var notificationsOpen by remember { mutableStateOf(false) }
     var notificationSettingsOpen by remember { mutableStateOf(false) }
     var agendaOpen by remember { mutableStateOf(false) }
+    var agendaOpenedFromCourseDetail by remember { mutableStateOf(false) }
     var calendar by remember { mutableStateOf<CalendarData?>(null) }
     var courseDetail by remember { mutableStateOf<CourseDetailData?>(null) }
     var years by remember { mutableStateOf<List<AcademicYear>>(emptyList()) }
@@ -380,7 +381,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     fun showCalendar(
         title: String, yearCode: String, source: SearchItem?,
         combined: List<SavedSubject>? = null, openDay: LocalDate? = null,
-        openAgenda: Boolean = false
+        openAgenda: Boolean = false, returnFromAgendaToCourse: Boolean = false
     ) {
         notificationsOpen = false
         notificationSettingsOpen = false
@@ -389,6 +390,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         val loadId = calendarLoadId
         scope.launch {
             agendaOpen = false
+            agendaOpenedFromCourseDetail = openAgenda && returnFromAgendaToCourse
             error = null
             val sameCalendar = calendar?.let {
                 it.title == title && it.year == yearCode && it.source?.kind == source?.kind &&
@@ -496,7 +498,11 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         calendarRefreshing = false
         busy = false
         when {
-            agendaOpen -> agendaOpen = false
+            agendaOpen -> {
+                agendaOpen = false
+                if (agendaOpenedFromCourseDetail) calendar = null
+                agendaOpenedFromCourseDetail = false
+            }
             calendar != null -> calendar = null
             courseDetail != null -> courseDetail = null
             notificationSettingsOpen -> {
@@ -539,8 +545,12 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                 },
                 actions = {
                     val shown = calendar
-                    if (shown != null && !agendaOpen) IconButton(onClick = { agendaOpen = true; error = null }) {
-                        Icon(Icons.AutoMirrored.Outlined.EventNote, contentDescription = "Apri vista agenda")
+                    if (shown != null && !agendaOpen) IconButton(onClick = {
+                        agendaOpenedFromCourseDetail = false
+                        agendaOpen = true
+                        error = null
+                    }) {
+                        Icon(Icons.Outlined.ViewAgenda, contentDescription = "Apri vista agenda")
                     }
                     if (shown?.source?.kind == SearchKind.SUBJECT && !agendaOpen) {
                         val subject = SavedSubject(shown.year, shown.source.code, shown.source.name)
@@ -664,6 +674,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                         onOpenDay = { day ->
                             if (calendar != null) {
                                 agendaOpen = false
+                                agendaOpenedFromCourseDetail = false
                                 week = startOfWeek(day)
                                 selectedDay = day
                             } else showCalendar("I miei orari", year?.code.orEmpty(), null, saved, day)
@@ -693,7 +704,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                             onToggleFavorite = { toggleFavorite(favorite) },
                             onOpenCalendar = { showCalendar(detail.course.name, detail.year, detail.course) },
                             onOpenAgenda = { showCalendar(detail.course.name, detail.year, detail.course,
-                                openAgenda = true) },
+                                openAgenda = true, returnFromAgendaToCourse = true) },
                             onOpenTeaching = { teaching ->
                                 showCalendar(teaching.name, detail.year,
                                     SearchItem(teaching.code, teaching.name, SearchKind.SUBJECT))
@@ -727,7 +738,11 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                         onOpenNext = { day ->
                             showCalendar("I miei orari", year?.code.orEmpty(), null, saved, day)
                         },
-                        onAgenda = { agendaOpen = true; error = null },
+                        onAgenda = {
+                            agendaOpenedFromCourseDetail = false
+                            agendaOpen = true
+                            error = null
+                        },
                         onAdd = { tab = 0; kind = SearchKind.SUBJECT; query = "" },
                         onRemove = { store.remove(it); saved = store.saved(); savedSelectionChanged() },
                         onClear = { store.clear(); saved = emptyList(); savedSelectionChanged() }

@@ -21,7 +21,7 @@ import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.School
-import androidx.compose.material.icons.outlined.ViewWeek
+import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -90,7 +90,7 @@ fun CourseDetailScreen(
                     Surface(shape = RoundedCornerShape(14.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         IconButton(onClick = onOpenAgenda, modifier = Modifier.size(44.dp)) {
-                            Icon(Icons.Outlined.ViewWeek, contentDescription = "Apri vista agenda del corso")
+                            Icon(Icons.Outlined.ViewAgenda, contentDescription = "Apri vista agenda del corso")
                         }
                     }
                 }

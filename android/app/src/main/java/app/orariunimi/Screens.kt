@@ -1,6 +1,8 @@
 package app.orariunimi
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -9,6 +11,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
@@ -44,7 +48,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.EventNote
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Bookmark
@@ -69,6 +72,7 @@ import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -109,6 +113,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.Instant
@@ -307,7 +312,7 @@ fun SavedScreen(
                 if (saved.isNotEmpty()) Surface(shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     IconButton(onClick = onAgenda, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.AutoMirrored.Outlined.EventNote, contentDescription = "Apri vista agenda")
+                        Icon(Icons.Outlined.ViewAgenda, contentDescription = "Apri vista agenda")
                     }
                 }
             }
@@ -679,12 +684,28 @@ private fun AgendaRangeSelector(range: AgendaRange, onRange: (AgendaRange) -> Un
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
-        Row(Modifier.padding(4.dp)) {
-            AgendaRangeOption("Giorno", range == AgendaRange.DAY, Modifier.weight(1f)) {
-                onRange(AgendaRange.DAY)
-            }
-            AgendaRangeOption("Settimana", range == AgendaRange.WEEK, Modifier.weight(1f)) {
-                onRange(AgendaRange.WEEK)
+        BoxWithConstraints(Modifier.padding(4.dp)) {
+            val segmentWidth = maxWidth / 2
+            val indicatorOffset by animateDpAsState(
+                targetValue = if (range == AgendaRange.DAY) 0.dp else segmentWidth,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                ),
+                label = "agenda-range-indicator"
+            )
+            Box(
+                Modifier.offset { IntOffset(indicatorOffset.roundToPx(), 0) }
+                    .width(segmentWidth).height(42.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp))
+            )
+            Row(Modifier.fillMaxWidth()) {
+                AgendaRangeOption("Giorno", range == AgendaRange.DAY, Modifier.weight(1f)) {
+                    onRange(AgendaRange.DAY)
+                }
+                AgendaRangeOption("Settimana", range == AgendaRange.WEEK, Modifier.weight(1f)) {
+                    onRange(AgendaRange.WEEK)
+                }
             }
         }
     }
@@ -692,18 +713,15 @@ private fun AgendaRangeSelector(range: AgendaRange, onRange: (AgendaRange) -> Un
 
 @Composable
 private fun AgendaRangeOption(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier.height(42.dp),
-        shape = RoundedCornerShape(14.dp),
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-            else MaterialTheme.colorScheme.onSurfaceVariant
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(label, style = MaterialTheme.typography.labelLarge,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
-        }
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(180),
+        label = "agenda-range-label"
+    )
+    Box(modifier.height(42.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Text(label, style = MaterialTheme.typography.labelLarge, color = contentColor,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
     }
 }
 
