@@ -15,6 +15,11 @@ tra la modalità giornaliera e quella settimanale, con scorrimento libero in
 entrambe le direzioni. È disponibile sia per il calendario personale sia per i
 corsi di laurea. Il widget riassume le lezioni del giorno in formato agenda e
 consente di passare al giorno precedente o successivo.
+Nelle Preferenze l'app controlla le release pubblicate su GitHub e, quando è
+disponibile una versione più recente, può scaricare e verificare l'APK prima di
+aprire l'installer di sistema. Android richiede sempre la conferma dell'utente
+per completare l'aggiornamento; dopo l'installazione l'APK scaricato viene
+eliminato automaticamente dalla cache dell'app.
 Se il record di un corso non elenca ancora gli insegnamenti, l'app cerca quelli
 associati al suo codice nell'elenco generale pubblicato dal portale per lo
 stesso anno accademico.

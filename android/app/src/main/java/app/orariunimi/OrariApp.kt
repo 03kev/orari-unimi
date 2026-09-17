@@ -1,6 +1,8 @@
 package app.orariunimi
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -94,6 +96,20 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     var weekend by remember { mutableStateOf(store.showWeekend) }
     var week by remember { mutableStateOf(startOfWeek(LocalDate.now())) }
     var selectedDay by remember { mutableStateOf(LocalDate.now()) }
+    var updateState by remember { mutableStateOf<AppUpdateState>(AppUpdateState.Idle) }
+    var pendingInstall by remember { mutableStateOf<File?>(null) }
+    val unknownSourcesLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        val apk = pendingInstall
+        if (apk != null && AppUpdater.canInstall(context)) {
+            runCatching { AppUpdater.install(context, apk) }
+                .onFailure { failure ->
+                    scope.launch { snackbar.showSnackbar(failure.message ?: "Impossibile aprire l'installazione.") }
+                }
+            pendingInstall = null
+        }
+    }
 
     LaunchedEffect(openSavedRequest) {
         if (openSavedRequest > 0) {
@@ -172,6 +188,56 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
         store.showWeekend = weekend
         if (!weekend && selectedDay.dayOfWeek.value > DayOfWeek.FRIDAY.value) selectedDay = week
         ScheduleWidgetProvider.updateAll(context)
+    }
+
+    fun checkForUpdate() {
+        scope.launch {
+            updateState = AppUpdateState.Checking
+            updateState = try {
+                val release = withContext(Dispatchers.IO) { AppUpdater.latestRelease() }
+                if (AppUpdater.isNewer(release.version, BuildConfig.VERSION_NAME)) {
+                    AppUpdateState.Available(release)
+                } else AppUpdateState.UpToDate
+            } catch (_: Exception) {
+                AppUpdateState.Error("Impossibile controllare gli aggiornamenti. Verifica la connessione e riprova.")
+            }
+        }
+    }
+
+    fun downloadUpdate(release: AppRelease) {
+        scope.launch {
+            updateState = AppUpdateState.Downloading(release, null)
+            updateState = try {
+                val apk = withContext(Dispatchers.IO) { AppUpdater.download(context, release) {} }
+                AppUpdateState.Ready(release, apk)
+            } catch (cause: Exception) {
+                val message = cause.message.orEmpty()
+                AppUpdateState.Error(if (message.contains("integrità")) message
+                    else "Impossibile scaricare l'aggiornamento. Verifica la connessione e riprova.")
+            }
+        }
+    }
+
+    fun installUpdate(file: File) {
+        if (AppUpdater.canInstall(context)) {
+            runCatching { AppUpdater.install(context, file) }
+                .onFailure { failure ->
+                    scope.launch { snackbar.showSnackbar(failure.message ?: "Impossibile aprire l'installazione.") }
+                }
+        } else {
+            pendingInstall = file
+            runCatching { unknownSourcesLauncher.launch(AppUpdater.unknownSourcesIntent(context)) }
+                .onFailure { failure ->
+                    pendingInstall = null
+                    scope.launch { snackbar.showSnackbar(failure.message ?: "Impossibile aprire il permesso di installazione.") }
+                }
+        }
+    }
+
+    fun openSettings() {
+        settings = true
+        error = null
+        if (updateState is AppUpdateState.Idle) checkForUpdate()
     }
 
     fun toggleSaved(subject: SavedSubject) {
@@ -366,7 +432,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                                     else "Salva corso nei preferiti")
                         }
                     } else if (calendar == null && courseDetail == null && !agendaOpen && !settings) {
-                        IconButton(onClick = { settings = true; error = null }) {
+                        IconButton(onClick = ::openSettings) {
                             Icon(Icons.Outlined.Settings, contentDescription = "Preferenze")
                         }
                     }
@@ -402,7 +468,15 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                         entriesRetry++
                     }} else null)
                 when {
-                    settings -> SettingsScreen(weekend, ::toggleWeekend)
+                    settings -> SettingsScreen(
+                        weekend = weekend,
+                        onWeekend = ::toggleWeekend,
+                        currentVersion = BuildConfig.VERSION_NAME,
+                        updateState = updateState,
+                        onCheckUpdate = ::checkForUpdate,
+                        onDownloadUpdate = ::downloadUpdate,
+                        onInstallUpdate = ::installUpdate
+                    )
                     agendaOpen -> ScheduleAgendaScreen(
                         lessons = calendar?.lessons ?: savedSchedule?.lessons,
                         loading = if (calendar != null) calendarRefreshing else savedScheduleLoading,

@@ -96,6 +96,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.Instant
+import java.io.File
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
@@ -668,13 +669,21 @@ private fun timelineMinutes(value: String): Int = runCatching {
 }.getOrDefault(0)
 
 @Composable
-fun SettingsScreen(weekend: Boolean, onWeekend: () -> Unit) {
+fun SettingsScreen(
+    weekend: Boolean,
+    onWeekend: () -> Unit,
+    currentVersion: String,
+    updateState: AppUpdateState,
+    onCheckUpdate: () -> Unit,
+    onDownloadUpdate: (AppRelease) -> Unit,
+    onInstallUpdate: (File) -> Unit
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Text("Personalizza il calendario", style = MaterialTheme.typography.headlineMedium,
+            Text("Personalizza l'app", style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(7.dp))
             Text("Le preferenze restano salvate su questo dispositivo.",
@@ -684,12 +693,115 @@ fun SettingsScreen(weekend: Boolean, onWeekend: () -> Unit) {
         item { SettingCard(Icons.Outlined.CalendarMonth, "Mostra il weekend",
             "Aggiunge sabato e domenica alla settimana.", weekend, onWeekend) }
         item {
+            Spacer(Modifier.height(6.dp))
+            Text("AGGIORNAMENTI", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item {
+            UpdateSettingCard(
+                currentVersion = currentVersion,
+                state = updateState,
+                onCheck = onCheckUpdate,
+                onDownload = onDownloadUpdate,
+                onInstall = onInstallUpdate
+            )
+        }
+        item {
             Spacer(Modifier.height(12.dp))
             Text("DATI E PRIVACY", style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(9.dp))
             Text("Gli orari arrivano dal portale pubblico UNIMI. Insegnamenti, corsi preferiti e preferenze rimangono solo sul telefono.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun UpdateSettingCard(
+    currentVersion: String,
+    state: AppUpdateState,
+    onCheck: () -> Unit,
+    onDownload: (AppRelease) -> Unit,
+    onInstall: (File) -> Unit
+) {
+    ElevatedCard(shape = RoundedCornerShape(22.dp)) {
+        Column(Modifier.fillMaxWidth().padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(onClick = onCheck,
+                    enabled = state != AppUpdateState.Checking && state !is AppUpdateState.Downloading,
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(42.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Refresh, contentDescription = "Controlla aggiornamenti",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Aggiornamenti", style = MaterialTheme.typography.titleMedium)
+                    Text("Versione installata $currentVersion", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            when (state) {
+                AppUpdateState.Idle -> {
+                    Text("Tocca l'icona per controllare le nuove versioni pubblicate su GitHub.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                AppUpdateState.Checking -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Controllo aggiornamenti…", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                AppUpdateState.UpToDate -> {
+                    Text("Hai già la versione più recente.", style = MaterialTheme.typography.bodyMedium)
+                }
+                is AppUpdateState.Available -> {
+                    Text("È disponibile la versione ${state.release.version}.",
+                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    Text("L'APK sarà scaricato dalla release ufficiale e verificato prima dell'installazione.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(12.dp))
+                    FilledTonalButton(onClick = { onDownload(state.release) },
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text("Scarica aggiornamento")
+                    }
+                }
+                is AppUpdateState.Downloading -> {
+                    Text("Download della versione ${state.release.version}…",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(10.dp))
+                    if (state.progress == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    else LinearProgressIndicator(progress = { state.progress }, modifier = Modifier.fillMaxWidth())
+                }
+                is AppUpdateState.Ready -> {
+                    Text("Versione ${state.release.version} pronta per l'installazione.",
+                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Android ti chiederà di confermare l'aggiornamento.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = { onInstall(state.file) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Installa aggiornamento")
+                    }
+                }
+                is AppUpdateState.Error -> {
+                    Text(state.message, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.height(5.dp))
+                    Text("Tocca l'icona per riprovare.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
     }
 }
