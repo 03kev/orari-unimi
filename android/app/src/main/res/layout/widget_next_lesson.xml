@@ -5,45 +5,56 @@
     android:layout_height="match_parent"
     android:background="@drawable/widget_background"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="10dp">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="36dp"
+        android:layout_height="54dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
         <ImageButton
             android:id="@+id/widget_previous"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="64dp"
+            android:layout_height="54dp"
             android:background="@android:color/transparent"
             android:contentDescription="Giorno precedente"
-            android:padding="8dp"
+            android:padding="10dp"
             android:src="@drawable/widget_chevron_left"
             android:tint="@color/widget_accent" />
 
-        <TextView
-            android:id="@+id/widget_title"
+        <FrameLayout
+            android:id="@+id/widget_today_area"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_weight="1"
-            android:ellipsize="end"
-            android:fontFamily="sans-serif-medium"
-            android:gravity="center"
-            android:maxLines="1"
-            android:text="AGENDA DI OGGI"
-            android:textAllCaps="true"
-            android:textColor="@color/widget_accent"
-            android:textSize="11sp" />
+            android:foreground="?android:attr/selectableItemBackground"
+            android:gravity="center">
+
+            <TextView
+                android:id="@+id/widget_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:layout_gravity="center"
+                android:maxLines="1"
+                android:text="AGENDA DI OGGI"
+                android:textAllCaps="true"
+                android:textColor="@color/widget_accent"
+                android:textSize="17sp" />
+        </FrameLayout>
 
         <ImageButton
             android:id="@+id/widget_next"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="64dp"
+            android:layout_height="54dp"
             android:background="@android:color/transparent"
             android:contentDescription="Giorno successivo"
-            android:padding="8dp"
+            android:padding="10dp"
             android:src="@drawable/widget_chevron_right"
             android:tint="@color/widget_accent" />
     </LinearLayout>
@@ -52,20 +63,23 @@
         android:id="@+id/widget_subject"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="5dp"
+        android:layout_marginBottom="8dp"
         android:ellipsize="end"
         android:fontFamily="sans-serif-medium"
         android:gravity="center"
+        android:includeFontPadding="false"
         android:maxLines="1"
         android:text="Mercoledì 17 settembre · 3 lezioni"
         android:textColor="@color/widget_text"
-        android:textSize="13sp" />
+        android:textSize="18sp" />
 
-    <LinearLayout
+    <ListView
         android:id="@+id/widget_lessons"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical" />
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="@null"
+        android:scrollbars="none" />
 
     <TextView
         android:id="@+id/widget_empty"
@@ -76,5 +90,5 @@
         android:padding="8dp"
         android:text="Nessuna lezione"
         android:textColor="@color/widget_text_secondary"
-        android:textSize="12sp" />
+        android:textSize="17sp" />
 </LinearLayout>

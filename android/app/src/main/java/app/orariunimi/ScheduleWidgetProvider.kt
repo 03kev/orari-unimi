@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.view.View
 import android.widget.RemoteViews
 import java.io.File
@@ -13,6 +14,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+@Suppress("DEPRECATION") // Required for scrollable collection widgets on Android 8–11.
 class ScheduleWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, appWidgetIds: IntArray) {
         updateAsync(context, manager, appWidgetIds)
@@ -24,14 +26,15 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
         val appWidgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,
             AppWidgetManager.INVALID_APPWIDGET_ID)
         if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
-        val current = selectedDay(context, appWidgetId)
+        val weekend = LocalStore(context).showWeekend
+        val current = openingDay(selectedDay(context, appWidgetId), weekend)
         val selected = when (intent.action) {
-            ACTION_PREVIOUS -> current.minusDays(1)
-            ACTION_NEXT -> current.plusDays(1)
-            else -> LocalDate.now()
+            ACTION_PREVIOUS -> adjacentCalendarDay(current, -1, weekend)
+            ACTION_NEXT -> adjacentCalendarDay(current, 1, weekend)
+            else -> openingDay(LocalDate.now(), weekend)
         }
         preferences(context).edit().putString(dayKey(appWidgetId), selected.toString()).apply()
-        updateAsync(context, AppWidgetManager.getInstance(context), intArrayOf(appWidgetId))
+        updateAsync(context, AppWidgetManager.getInstance(context), intArrayOf(appWidgetId), partial = true)
     }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
@@ -40,12 +43,20 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
         editor.apply()
     }
 
-    private fun updateAsync(context: Context, manager: AppWidgetManager, appWidgetIds: IntArray) {
+    private fun updateAsync(
+        context: Context,
+        manager: AppWidgetManager,
+        appWidgetIds: IntArray,
+        partial: Boolean = false
+    ) {
         val pendingResult = goAsync()
         Thread {
             try {
                 appWidgetIds.forEach { appWidgetId ->
-                    manager.updateAppWidget(appWidgetId, createViews(context, appWidgetId))
+                    val views = createViews(context, appWidgetId, bindAdapter = !partial)
+                    if (partial) manager.partiallyUpdateAppWidget(appWidgetId, views)
+                    else manager.updateAppWidget(appWidgetId, views)
+                    manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.widget_lessons)
                 }
             } finally {
                 pendingResult.finish()
@@ -53,13 +64,18 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
         }.start()
     }
 
-    private fun createViews(context: Context, appWidgetId: Int): RemoteViews {
-        val saved = LocalStore(context).saved()
+    private fun createViews(context: Context, appWidgetId: Int, bindAdapter: Boolean): RemoteViews {
+        val store = LocalStore(context)
+        val saved = store.saved()
         val snapshot = if (saved.isEmpty()) null else runCatching {
             UnimiApi(cache = ResponseCache(File(context.cacheDir, "orari-responses"))).cachedSavedLessons(saved)
         }.getOrNull()
         val today = LocalDate.now()
-        val selected = selectedDay(context, appWidgetId)
+        val storedDay = selectedDay(context, appWidgetId)
+        val selected = openingDay(storedDay, store.showWeekend)
+        if (selected != storedDay) {
+            preferences(context).edit().putString(dayKey(appWidgetId), selected.toString()).apply()
+        }
         val selectedLessons = snapshot?.lessons?.let { lessonsForDay(it, selected) }
         val views = RemoteViews(context.packageName, R.layout.widget_next_lesson)
         val openApp = Intent(context, MainActivity::class.java)
@@ -72,9 +88,15 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
             dayPendingIntent(context, appWidgetId, ACTION_PREVIOUS, 1))
         views.setOnClickPendingIntent(R.id.widget_next,
             dayPendingIntent(context, appWidgetId, ACTION_NEXT, 2))
-        views.setOnClickPendingIntent(R.id.widget_title,
+        views.setOnClickPendingIntent(R.id.widget_today_area,
             dayPendingIntent(context, appWidgetId, ACTION_TODAY, 3))
-        views.removeAllViews(R.id.widget_lessons)
+        if (bindAdapter) {
+            views.setRemoteAdapter(R.id.widget_lessons,
+                Intent(context, ScheduleWidgetLessonsService::class.java).apply {
+                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                    data = Uri.parse("orariunimi://widget/$appWidgetId")
+                })
+        }
         views.setTextViewText(R.id.widget_title, when (selected) {
             today -> "Agenda di oggi"
             today.plusDays(1) -> "Agenda di domani"
@@ -102,20 +124,6 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                     "$day · $count ${if (count == 1) "lezione" else "lezioni"}")
                 views.setViewVisibility(R.id.widget_lessons, View.VISIBLE)
                 views.setViewVisibility(R.id.widget_empty, View.GONE)
-                selectedLessons.forEach { lesson ->
-                    val row = RemoteViews(context.packageName, R.layout.widget_lesson_row)
-                    row.setTextViewText(R.id.widget_lesson_time, "${lesson.start}\n${lesson.end}")
-                    row.setTextViewText(R.id.widget_lesson_subject,
-                        (if (lesson.cancelled) "ANNULLATA · " else "") +
-                            lesson.subject.ifBlank { "Insegnamento" })
-                    row.setTextViewText(R.id.widget_lesson_room,
-                        listOf(lesson.room, lesson.teacher).filter { it.isNotBlank() }.joinToString(" · ")
-                            .ifBlank { lesson.type.ifBlank { "Lezione" } })
-                    val accent = if (lesson.cancelled) context.getColor(R.color.widget_warning)
-                        else widgetLessonColors[(lesson.subjectCode.hashCode() and Int.MAX_VALUE) % widgetLessonColors.size]
-                    row.setInt(R.id.widget_lesson_accent, "setBackgroundColor", accent)
-                    views.addView(R.id.widget_lessons, row)
-                }
             }
         }
         return views
@@ -127,7 +135,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
         private const val ACTION_TODAY = "app.orariunimi.widget.TODAY"
         private const val WIDGET_PREFERENCES = "schedule_widget"
         private val widgetDay = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ITALIAN)
-        private val widgetLessonColors = intArrayOf(
+        internal val widgetLessonColors = intArrayOf(
             0xFF6F91F2.toInt(), 0xFF40B9AE.toInt(), 0xFFE08188.toInt(), 0xFFC49A3A.toInt(),
             0xFFAF8AE1.toInt(), 0xFF62A7D8.toInt(), 0xFFDC925E.toInt(), 0xFF7CAD70.toInt()
         )
@@ -143,7 +151,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
         private fun preferences(context: Context) =
             context.getSharedPreferences(WIDGET_PREFERENCES, Context.MODE_PRIVATE)
 
-        private fun selectedDay(context: Context, appWidgetId: Int): LocalDate = runCatching {
+        internal fun selectedDay(context: Context, appWidgetId: Int): LocalDate = runCatching {
             LocalDate.parse(preferences(context).getString(dayKey(appWidgetId), null))
         }.getOrDefault(LocalDate.now())
 

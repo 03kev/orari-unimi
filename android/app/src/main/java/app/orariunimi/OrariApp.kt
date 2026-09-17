@@ -171,6 +171,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
         weekend = !weekend
         store.showWeekend = weekend
         if (!weekend && selectedDay.dayOfWeek.value > DayOfWeek.FRIDAY.value) selectedDay = week
+        ScheduleWidgetProvider.updateAll(context)
     }
 
     fun toggleSaved(subject: SavedSubject) {

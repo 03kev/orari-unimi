@@ -29,5 +29,9 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/next_lesson_widget_info" />
         </receiver>
+        <service
+            android:name=".ScheduleWidgetLessonsService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
     </application>
 </manifest>

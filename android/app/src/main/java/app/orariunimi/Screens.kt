@@ -1,9 +1,9 @@
 package app.orariunimi
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -443,19 +443,15 @@ fun ScheduleAgendaScreen(
                     contentDescription = if (range == AgendaRange.DAY) "Giorno successivo" else "Settimana successiva")
             }
         }
-        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = range == AgendaRange.DAY, onClick = { range = AgendaRange.DAY },
-                label = { Text("Giorno") })
-            FilterChip(selected = range == AgendaRange.WEEK, onClick = { range = AgendaRange.WEEK },
-                label = { Text("Settimana") })
-        }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        AgendaRangeSelector(range = range, onRange = { range = it })
         when {
             lessons == null && loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-            else -> BoxWithConstraints(Modifier.fillMaxSize()) {
+            else -> BoxWithConstraints(
+                Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+            ) {
+                val gridColor = MaterialTheme.colorScheme.outlineVariant
                 val availableDayWidth = maxWidth - timeWidth
                 val dayWidth = if (range == AgendaRange.DAY && availableDayWidth > 240.dp)
                     availableDayWidth else if (range == AgendaRange.DAY) 240.dp else 138.dp
@@ -471,113 +467,132 @@ fun ScheduleAgendaScreen(
                     }
                 }
 
-                Column(
-                    Modifier.fillMaxSize().clipToBounds().pointerInput(horizontal, vertical) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            horizontal.dispatchRawDelta(-dragAmount.x)
-                            vertical.dispatchRawDelta(-dragAmount.y)
-                        }
-                    }
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
-                    Row(Modifier.fillMaxWidth().height(66.dp)) {
-                        Box(
-                            Modifier.width(timeWidth).fillMaxHeight()
-                                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
-                            contentAlignment = Alignment.BottomCenter
-                        ) {
-                            Text("ORA", Modifier.padding(bottom = 9.dp), style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Box(Modifier.weight(1f).clipToBounds()) {
-                            Row(Modifier.horizontalScroll(horizontal, enabled = false)) {
-                                days.forEach { day ->
-                                    val today = day == LocalDate.now()
-                                    Surface(color = if (today) MaterialTheme.colorScheme.primaryContainer
-                                        else MaterialTheme.colorScheme.surface,
-                                        modifier = Modifier.width(dayWidth).fillMaxHeight()
-                                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.Center) {
-                                            Text(day.dayOfWeek.getDisplayName(TextStyle.SHORT, italian).uppercase(italian),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = if (today) MaterialTheme.colorScheme.primary
-                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontWeight = FontWeight.Bold)
-                                            Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.titleLarge,
-                                                fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                }
+                    Column(
+                        Modifier.fillMaxSize().clipToBounds().pointerInput(horizontal, vertical) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                horizontal.dispatchRawDelta(-dragAmount.x)
+                                vertical.dispatchRawDelta(-dragAmount.y)
                             }
                         }
-                    }
-                    Row(Modifier.weight(1f).fillMaxWidth().clipToBounds()
-                        .verticalScroll(vertical, enabled = false)) {
-                        Box(
-                            Modifier.width(timeWidth).height(gridHeight)
-                                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-                        ) {
-                            val gridColor = MaterialTheme.colorScheme.outlineVariant
-                            Canvas(Modifier.fillMaxSize()) {
-                                repeat(slots + 1) { index ->
-                                    val y = slotHeight.toPx() * index
-                                    drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(0f, y),
-                                        end = androidx.compose.ui.geometry.Offset(size.width, y), strokeWidth = 1f)
-                                }
-                            }
-                            repeat(slots + 1) { index ->
-                                val minute = firstMinute + index * 30
-                                val labelOffset = when (index) {
-                                    0 -> 2.dp
-                                    slots -> gridHeight - 18.dp
-                                    else -> slotHeight * index - 8.dp
-                                }
-                                Text(LocalTime.of(minute / 60, minute % 60).format(updateTime),
-                                    modifier = Modifier.width(timeWidth).offset(y = labelOffset),
+                    ) {
+                        Row(Modifier.fillMaxWidth().height(66.dp)) {
+                            Box(
+                                Modifier.width(timeWidth).fillMaxHeight(),
+                                contentAlignment = Alignment.BottomCenter
+                            ) {
+                                Text("ORA", Modifier.padding(bottom = 9.dp),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 1)
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Canvas(Modifier.fillMaxSize()) {
+                                    drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                                        end = androidx.compose.ui.geometry.Offset(size.width, size.height), strokeWidth = 1f)
+                                }
                             }
-                        }
-                        Box(Modifier.weight(1f).clipToBounds()) {
-                            Box(Modifier.horizontalScroll(horizontal, enabled = false)) {
-                                Box(Modifier.width(dayWidth * days.size).height(gridHeight)) {
-                                    val gridColor = MaterialTheme.colorScheme.outlineVariant
-                                    Canvas(Modifier.fillMaxSize()) {
-                                        repeat(slots + 1) { index ->
-                                            val y = slotHeight.toPx() * index
-                                            drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(0f, y),
-                                                end = androidx.compose.ui.geometry.Offset(size.width, y), strokeWidth = 1f)
-                                        }
-                                        repeat(days.size + 1) { index ->
-                                            val x = dayWidth.toPx() * index
-                                            drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(x, 0f),
-                                                end = androidx.compose.ui.geometry.Offset(x, size.height), strokeWidth = 1f)
+                            Box(Modifier.weight(1f).clipToBounds()) {
+                                Row(Modifier.horizontalScroll(horizontal, enabled = false)) {
+                                    days.forEach { day ->
+                                        val today = day == LocalDate.now()
+                                        Surface(color = if (today) MaterialTheme.colorScheme.primaryContainer
+                                            else MaterialTheme.colorScheme.surfaceContainerLow,
+                                            modifier = Modifier.width(dayWidth).fillMaxHeight()) {
+                                            Box {
+                                                Column(Modifier.fillMaxSize(),
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.Center) {
+                                                    Text(day.dayOfWeek.getDisplayName(TextStyle.SHORT, italian).uppercase(italian),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = if (today) MaterialTheme.colorScheme.primary
+                                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        fontWeight = FontWeight.Bold)
+                                                    Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.titleLarge,
+                                                        fontWeight = FontWeight.Bold)
+                                                }
+                                                Canvas(Modifier.fillMaxSize()) {
+                                                    drawLine(gridColor,
+                                                        start = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                                                        end = androidx.compose.ui.geometry.Offset(size.width, size.height),
+                                                        strokeWidth = 1f)
+                                                }
+                                            }
                                         }
                                     }
-                                    placements.forEach { placement ->
-                                        val lesson = placement.lesson
-                                        val dayIndex = days.indexOf(lesson.date)
-                                        val start = timelineMinutes(lesson.start).coerceAtLeast(firstMinute)
-                                        val end = timelineMinutes(lesson.end).coerceAtMost(lastMinute)
-                                        if (dayIndex >= 0 && end > start) {
-                                            val laneWidth = dayWidth / placement.laneCount
-                                            val top = slotHeight * ((start - firstMinute) / 30f)
-                                            val height = maxOf(44.dp, slotHeight * ((end - start) / 30f) - 4.dp)
-                                            TimelineLessonCard(
-                                                lesson = lesson,
-                                                compact = placement.laneCount > 1,
-                                                modifier = Modifier
-                                                    .offset(
-                                                        x = dayWidth * dayIndex + laneWidth * placement.lane + 2.dp,
-                                                        y = top + 2.dp
-                                                    )
-                                                    .width(laneWidth - 4.dp)
-                                                    .height(height),
-                                                onClick = { onOpenDay(lesson.date) }
-                                            )
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Row(Modifier.weight(1f).fillMaxWidth().clipToBounds()
+                            .verticalScroll(vertical, enabled = false)) {
+                            Box(Modifier.width(timeWidth).height(gridHeight)) {
+                                val gridColor = MaterialTheme.colorScheme.outlineVariant
+                                Canvas(Modifier.fillMaxSize()) {
+                                    for (index in 1 until slots) {
+                                        val y = slotHeight.toPx() * index
+                                        drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(0f, y),
+                                            end = androidx.compose.ui.geometry.Offset(size.width, y), strokeWidth = 1f)
+                                    }
+                                    drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                                        end = androidx.compose.ui.geometry.Offset(size.width, size.height), strokeWidth = 1f)
+                                }
+                                repeat(slots + 1) { index ->
+                                    val minute = firstMinute + index * 30
+                                    val labelOffset = when (index) {
+                                        0 -> 2.dp
+                                        slots -> gridHeight - 18.dp
+                                        else -> slotHeight * index - 8.dp
+                                    }
+                                    Text(LocalTime.of(minute / 60, minute % 60).format(updateTime),
+                                        modifier = Modifier.width(timeWidth).offset(y = labelOffset),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 1)
+                                }
+                            }
+                            Box(Modifier.weight(1f).clipToBounds()) {
+                                Box(Modifier.horizontalScroll(horizontal, enabled = false)) {
+                                    Box(Modifier.width(dayWidth * days.size).height(gridHeight)) {
+                                        val gridColor = MaterialTheme.colorScheme.outlineVariant
+                                        Canvas(Modifier.fillMaxSize()) {
+                                            for (index in 1 until slots) {
+                                                val y = slotHeight.toPx() * index
+                                                drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(0f, y),
+                                                    end = androidx.compose.ui.geometry.Offset(size.width, y), strokeWidth = 1f)
+                                            }
+                                            for (index in 1 until days.size) {
+                                                val x = dayWidth.toPx() * index
+                                                drawLine(gridColor, start = androidx.compose.ui.geometry.Offset(x, 0f),
+                                                    end = androidx.compose.ui.geometry.Offset(x, size.height), strokeWidth = 1f)
+                                            }
+                                        }
+                                        placements.forEach { placement ->
+                                            val lesson = placement.lesson
+                                            val dayIndex = days.indexOf(lesson.date)
+                                            val start = timelineMinutes(lesson.start).coerceAtLeast(firstMinute)
+                                            val end = timelineMinutes(lesson.end).coerceAtMost(lastMinute)
+                                            if (dayIndex >= 0 && end > start) {
+                                                val laneWidth = dayWidth / placement.laneCount
+                                                val top = slotHeight * ((start - firstMinute) / 30f)
+                                                val height = maxOf(44.dp, slotHeight * ((end - start) / 30f) - 4.dp)
+                                                TimelineLessonCard(
+                                                    lesson = lesson,
+                                                    compact = placement.laneCount > 1,
+                                                    modifier = Modifier
+                                                        .offset(
+                                                            x = dayWidth * dayIndex + laneWidth * placement.lane + 2.dp,
+                                                            y = top + 2.dp
+                                                        )
+                                                        .width(laneWidth - 4.dp)
+                                                        .height(height),
+                                                    onClick = { onOpenDay(lesson.date) }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -591,6 +606,41 @@ fun ScheduleAgendaScreen(
 }
 
 private enum class AgendaRange { DAY, WEEK }
+
+@Composable
+private fun AgendaRangeSelector(range: AgendaRange, onRange: (AgendaRange) -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Row(Modifier.padding(4.dp)) {
+            AgendaRangeOption("Giorno", range == AgendaRange.DAY, Modifier.weight(1f)) {
+                onRange(AgendaRange.DAY)
+            }
+            AgendaRangeOption("Settimana", range == AgendaRange.WEEK, Modifier.weight(1f)) {
+                onRange(AgendaRange.WEEK)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgendaRangeOption(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(42.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+            else MaterialTheme.colorScheme.onSurfaceVariant
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(label, style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+        }
+    }
+}
 
 @Composable
 private fun TimelineLessonCard(lesson: Lesson, compact: Boolean, modifier: Modifier, onClick: () -> Unit) {

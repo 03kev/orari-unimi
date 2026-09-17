@@ -1,24 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="42dp"
-    android:layout_marginBottom="4dp"
+    android:layout_height="58dp"
+    android:layout_marginBottom="6dp"
     android:gravity="center_vertical"
     android:orientation="horizontal">
 
     <TextView
         android:id="@+id/widget_lesson_time"
-        android:layout_width="48dp"
+        android:layout_width="62dp"
         android:layout_height="match_parent"
         android:gravity="center"
         android:maxLines="2"
         android:text="08:30\n10:30"
         android:textColor="@color/widget_text_secondary"
-        android:textSize="9sp" />
+        android:textSize="14sp" />
 
     <TextView
         android:id="@+id/widget_lesson_accent"
-        android:layout_width="4dp"
+        android:layout_width="5dp"
         android:layout_height="match_parent"
         android:background="@color/widget_accent" />
 
@@ -29,7 +29,7 @@
         android:background="@drawable/widget_lesson_background"
         android:gravity="center_vertical"
         android:orientation="vertical"
-        android:paddingHorizontal="9dp">
+        android:paddingHorizontal="12dp">
 
         <TextView
             android:id="@+id/widget_lesson_subject"
@@ -40,7 +40,7 @@
             android:maxLines="1"
             android:text="Insegnamento"
             android:textColor="@color/widget_text"
-            android:textSize="11sp" />
+            android:textSize="16sp" />
 
         <TextView
             android:id="@+id/widget_lesson_room"
@@ -50,6 +50,6 @@
             android:maxLines="1"
             android:text="Aula"
             android:textColor="@color/widget_text_secondary"
-            android:textSize="9sp" />
+            android:textSize="14sp" />
     </LinearLayout>
 </LinearLayout>
