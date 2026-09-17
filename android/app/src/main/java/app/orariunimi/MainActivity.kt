@@ -9,16 +9,20 @@ import androidx.compose.runtime.mutableIntStateOf
 
 class MainActivity : ComponentActivity() {
     private val openSavedRequest = mutableIntStateOf(0)
+    private val openNotificationsRequest = mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (intent.getBooleanExtra(OPEN_SAVED, false)) openSavedRequest.intValue++
+        if (intent.getBooleanExtra(OPEN_NOTIFICATIONS, false)) openNotificationsRequest.intValue++
+        NotificationScheduler.configure(applicationContext)
         enableEdgeToEdge()
         setContent {
             OrariTheme {
                 OrariApp(
                     initialTab = if (intent.getBooleanExtra(OPEN_SAVED, false)) 1 else 0,
-                    openSavedRequest = openSavedRequest.intValue
+                    openSavedRequest = openSavedRequest.intValue,
+                    openNotificationsRequest = openNotificationsRequest.intValue
                 )
             }
         }
@@ -28,9 +32,11 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra(OPEN_SAVED, false)) openSavedRequest.intValue++
+        if (intent.getBooleanExtra(OPEN_NOTIFICATIONS, false)) openNotificationsRequest.intValue++
     }
 
     companion object {
         const val OPEN_SAVED = "open_saved"
+        const val OPEN_NOTIFICATIONS = "open_notifications"
     }
 }

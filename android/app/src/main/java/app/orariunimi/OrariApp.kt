@@ -1,5 +1,8 @@
 package app.orariunimi
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,10 +16,13 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.ViewWeek
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,6 +36,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -49,6 +56,7 @@ import java.io.File
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
+import androidx.core.content.ContextCompat
 
 data class CalendarData(
     val title: String,
@@ -63,7 +71,7 @@ data class CourseDetailData(val year: String, val course: SearchItem)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
+fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRequest: Int = 0) {
     val context = LocalContext.current
     val store = remember(context) { LocalStore(context.applicationContext) }
     val api = remember(context) {
@@ -73,6 +81,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     val snackbar = remember { SnackbarHostState() }
     var tab by remember { mutableIntStateOf(initialTab) }
     var settings by remember { mutableStateOf(false) }
+    var notificationsOpen by remember { mutableStateOf(false) }
     var agendaOpen by remember { mutableStateOf(false) }
     var calendar by remember { mutableStateOf<CalendarData?>(null) }
     var courseDetail by remember { mutableStateOf<CourseDetailData?>(null) }
@@ -94,10 +103,23 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     var savedScheduleLoading by remember { mutableStateOf(false) }
     var favorites by remember { mutableStateOf(store.favoriteCourses()) }
     var weekend by remember { mutableStateOf(store.showWeekend) }
+    var notificationPreferences by remember { mutableStateOf(store.notificationPreferences) }
+    var notificationEntries by remember { mutableStateOf(store.notifications()) }
     var week by remember { mutableStateOf(startOfWeek(LocalDate.now())) }
     var selectedDay by remember { mutableStateOf(LocalDate.now()) }
     var updateState by remember { mutableStateOf<AppUpdateState>(AppUpdateState.Idle) }
     var pendingInstall by remember { mutableStateOf<File?>(null) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            notificationPreferences = notificationPreferences.copy(enabled = true)
+            store.notificationPreferences = notificationPreferences
+            NotificationScheduler.configure(context, runNow = true)
+        } else {
+            scope.launch { snackbar.showSnackbar("Per ricevere gli avvisi devi consentire le notifiche nelle impostazioni Android.") }
+        }
+    }
     val unknownSourcesLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -111,13 +133,38 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
         }
     }
 
+    DisposableEffect(store) {
+        val preferences = context.getSharedPreferences("orari_unimi", android.content.Context.MODE_PRIVATE)
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "notification_inbox") scope.launch {
+                notificationEntries = store.notifications()
+            }
+        }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
     LaunchedEffect(openSavedRequest) {
         if (openSavedRequest > 0) {
             settings = false
+            notificationsOpen = false
             agendaOpen = false
             calendar = null
             courseDetail = null
             tab = 1
+        }
+    }
+
+    LaunchedEffect(openNotificationsRequest) {
+        if (openNotificationsRequest > 0) {
+            settings = false
+            agendaOpen = false
+            calendar = null
+            courseDetail = null
+            notificationEntries = store.notifications()
+            store.markNotificationsRead()
+            notificationEntries = store.notifications()
+            notificationsOpen = true
         }
     }
 
@@ -235,15 +282,50 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     }
 
     fun openSettings() {
+        notificationsOpen = false
         settings = true
         error = null
         if (updateState is AppUpdateState.Idle) checkForUpdate()
+    }
+
+    fun openNotifications() {
+        settings = false
+        notificationEntries = store.notifications()
+        store.markNotificationsRead()
+        notificationEntries = store.notifications()
+        notificationsOpen = true
+        error = null
+    }
+
+    fun setNotificationPreferences(updated: NotificationPreferences, resetBaseline: Boolean = false) {
+        notificationPreferences = updated
+        store.notificationPreferences = updated
+        if (resetBaseline) NotificationBaselineStore(context).clear()
+        NotificationScheduler.configure(context, runNow = true)
+    }
+
+    fun toggleNotifications() {
+        if (notificationPreferences.enabled) {
+            setNotificationPreferences(notificationPreferences.copy(enabled = false))
+            return
+        }
+        if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            setNotificationPreferences(notificationPreferences.copy(enabled = true))
+        } else notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    fun savedSelectionChanged() {
+        NotificationBaselineStore(context).clear()
+        store.lastLessonReminderKey = null
+        NotificationScheduler.configure(context, runNow = true)
     }
 
     fun toggleSaved(subject: SavedSubject) {
         val isSaved = saved.any { it.year == subject.year && it.code == subject.code }
         if (isSaved) store.remove(subject) else store.add(subject)
         saved = store.saved()
+        savedSelectionChanged()
         scope.launch { snackbar.showSnackbar(if (isSaved) "Rimosso dai tuoi orari" else "Aggiunto ai tuoi orari") }
     }
 
@@ -264,6 +346,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
         combined: List<SavedSubject>? = null, openDay: LocalDate? = null,
         openAgenda: Boolean = false
     ) {
+        notificationsOpen = false
+        settings = false
         calendarLoadId++
         val loadId = calendarLoadId
         scope.launch {
@@ -378,12 +462,13 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
             agendaOpen -> agendaOpen = false
             calendar != null -> calendar = null
             courseDetail != null -> courseDetail = null
-            else -> settings = false
+            settings -> settings = false
+            else -> notificationsOpen = false
         }
         error = null
     }
 
-    BackHandler(enabled = calendar != null || courseDetail != null || agendaOpen || settings) { goBack() }
+    BackHandler(enabled = calendar != null || courseDetail != null || agendaOpen || settings || notificationsOpen) { goBack() }
 
     Scaffold(
         topBar = {
@@ -396,6 +481,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                         courseDetail != null -> Text(courseDetail!!.course.name, maxLines = 1,
                             overflow = TextOverflow.Ellipsis)
                         settings -> Text("Preferenze")
+                        notificationsOpen -> Text("Notifiche")
                         else -> Column {
                             Text("Orari UNIMI", style = MaterialTheme.typography.titleLarge)
                             Text(year?.name ?: "Anno accademico", style = MaterialTheme.typography.labelMedium,
@@ -404,7 +490,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                     }
                 },
                 navigationIcon = {
-                    if (calendar != null || courseDetail != null || agendaOpen || settings) IconButton(onClick = ::goBack) {
+                    if (calendar != null || courseDetail != null || agendaOpen || settings || notificationsOpen) IconButton(onClick = ::goBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Indietro")
                     }
                 },
@@ -431,7 +517,15 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                                 contentDescription = if (isFavorite) "Rimuovi corso dai preferiti"
                                     else "Salva corso nei preferiti")
                         }
-                    } else if (calendar == null && courseDetail == null && !agendaOpen && !settings) {
+                    } else if (calendar == null && courseDetail == null && !agendaOpen && !settings && !notificationsOpen) {
+                        IconButton(onClick = ::openNotifications) {
+                            BadgedBox(badge = {
+                                val unread = notificationEntries.count { !it.read }
+                                if (unread > 0) Badge { Text(if (unread > 99) "99+" else unread.toString()) }
+                            }) {
+                                Icon(Icons.Outlined.NotificationsNone, contentDescription = "Notifiche")
+                            }
+                        }
                         IconButton(onClick = ::openSettings) {
                             Icon(Icons.Outlined.Settings, contentDescription = "Preferenze")
                         }
@@ -440,7 +534,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
             )
         },
         bottomBar = {
-            if (calendar == null && courseDetail == null && !agendaOpen && !settings) NavigationBar {
+            if (calendar == null && courseDetail == null && !agendaOpen && !settings && !notificationsOpen) NavigationBar {
                 NavigationBarItem(
                     selected = tab == 0, onClick = { tab = 0; error = null },
                     icon = { Icon(Icons.Outlined.Search, contentDescription = null) }, label = { Text("Esplora") }
@@ -459,7 +553,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
-                if (loadingEntries && tab == 0 && calendar == null && courseDetail == null && !agendaOpen && !settings || busy) {
+                if (loadingEntries && tab == 0 && calendar == null && courseDetail == null && !agendaOpen && !settings && !notificationsOpen || busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
                 if (error != null) ErrorBanner(error!!, onDismiss = { error = null },
@@ -468,6 +562,21 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                         entriesRetry++
                     }} else null)
                 when {
+                    notificationsOpen -> NotificationCenterScreen(
+                        entries = notificationEntries,
+                        onDelete = { id ->
+                            store.deleteNotification(id)
+                            notificationEntries = store.notifications()
+                        },
+                        onOpen = { entry ->
+                            when (entry.type) {
+                                AppNotificationType.APP_UPDATE -> openSettings()
+                                else -> if (saved.isNotEmpty()) showCalendar(
+                                    "I miei orari", year?.code.orEmpty(), null, saved, entry.targetDate
+                                )
+                            }
+                        }
+                    )
                     settings -> SettingsScreen(
                         weekend = weekend,
                         onWeekend = ::toggleWeekend,
@@ -475,7 +584,26 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                         updateState = updateState,
                         onCheckUpdate = ::checkForUpdate,
                         onDownloadUpdate = ::downloadUpdate,
-                        onInstallUpdate = ::installUpdate
+                        onInstallUpdate = ::installUpdate,
+                        notificationPreferences = notificationPreferences,
+                        onNotificationsEnabled = ::toggleNotifications,
+                        onImportantChanges = {
+                            setNotificationPreferences(notificationPreferences.copy(
+                                importantChanges = !notificationPreferences.importantChanges), resetBaseline = true)
+                        },
+                        onLessonReminders = {
+                            store.lastLessonReminderKey = null
+                            setNotificationPreferences(notificationPreferences.copy(
+                                lessonReminders = !notificationPreferences.lessonReminders))
+                        },
+                        onAppUpdates = {
+                            setNotificationPreferences(notificationPreferences.copy(
+                                appUpdates = !notificationPreferences.appUpdates))
+                        },
+                        onReminderMinutes = { minutes ->
+                            store.lastLessonReminderKey = null
+                            setNotificationPreferences(notificationPreferences.copy(reminderMinutes = minutes))
+                        }
                     )
                     agendaOpen -> ScheduleAgendaScreen(
                         lessons = calendar?.lessons ?: savedSchedule?.lessons,
@@ -549,8 +677,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0) {
                         },
                         onAgenda = { agendaOpen = true; error = null },
                         onAdd = { tab = 0; kind = SearchKind.SUBJECT; query = "" },
-                        onRemove = { store.remove(it); saved = store.saved() },
-                        onClear = { store.clear(); saved = emptyList() }
+                        onRemove = { store.remove(it); saved = store.saved(); savedSelectionChanged() },
+                        onClear = { store.clear(); saved = emptyList(); savedSelectionChanged() }
                     )
                     else -> FavoriteCoursesScreen(
                         favorites = favorites,

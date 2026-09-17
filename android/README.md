@@ -20,6 +20,12 @@ disponibile una versione più recente, può scaricare e verificare l'APK prima d
 aprire l'installer di sistema. Android richiede sempre la conferma dell'utente
 per completare l'aggiornamento; dopo l'installazione l'APK scaricato viene
 eliminato automaticamente dalla cache dell'app.
+Le notifiche sono interamente facoltative e configurabili nelle Preferenze.
+Possono segnalare variazioni importanti degli orari, ricordare in modo
+silenzioso la prossima lezione e avvisare silenziosamente delle nuove versioni.
+La campanella nella schermata principale apre lo storico locale, dal quale ogni
+voce può essere eliminata con uno swipe. Dettagli e protezioni adottate sono
+descritti in [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
 Se il record di un corso non elenca ancora gli insegnamenti, l'app cerca quelli
 associati al suo codice nell'elenco generale pubblicato dal portale per lo
 stesso anno accademico.

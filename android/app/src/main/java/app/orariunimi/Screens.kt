@@ -50,6 +50,10 @@ import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.WarningAmber
@@ -86,6 +90,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
@@ -676,7 +681,13 @@ fun SettingsScreen(
     updateState: AppUpdateState,
     onCheckUpdate: () -> Unit,
     onDownloadUpdate: (AppRelease) -> Unit,
-    onInstallUpdate: (File) -> Unit
+    onInstallUpdate: (File) -> Unit,
+    notificationPreferences: NotificationPreferences,
+    onNotificationsEnabled: () -> Unit,
+    onImportantChanges: () -> Unit,
+    onLessonReminders: () -> Unit,
+    onAppUpdates: () -> Unit,
+    onReminderMinutes: (Int) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp),
@@ -692,6 +703,44 @@ fun SettingsScreen(
         }
         item { SettingCard(Icons.Outlined.CalendarMonth, "Mostra il weekend",
             "Aggiunge sabato e domenica alla settimana.", weekend, onWeekend) }
+        item {
+            Spacer(Modifier.height(6.dp))
+            Text("NOTIFICHE", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item { SettingCard(Icons.Outlined.Notifications, "Notifiche",
+            "Attiva gli avvisi locali e scegli quali ricevere.",
+            notificationPreferences.enabled, onNotificationsEnabled) }
+        if (notificationPreferences.enabled) {
+            item { SettingCard(Icons.Outlined.NotificationsActive, "Variazioni importanti",
+                "Avvisa per annullamenti e cambi di data, ora, aula, docente o note.",
+                notificationPreferences.importantChanges, onImportantChanges) }
+            item { SettingCard(Icons.Outlined.Schedule, "Prossima lezione",
+                "Promemoria silenzioso prima dell'inizio.",
+                notificationPreferences.lessonReminders, onLessonReminders) }
+            if (notificationPreferences.lessonReminders) {
+                item {
+                    ElevatedCard(shape = RoundedCornerShape(22.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(18.dp)) {
+                            Text("Quanto prima?", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(10.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(15, 30, 60).forEach { minutes ->
+                                    FilterChip(
+                                        selected = notificationPreferences.reminderMinutes == minutes,
+                                        onClick = { onReminderMinutes(minutes) },
+                                        label = { Text("$minutes min") }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            item { SettingCard(Icons.Outlined.SystemUpdate, "Aggiornamenti dell'app",
+                "Avviso silenzioso quando viene pubblicata una nuova versione.",
+                notificationPreferences.appUpdates, onAppUpdates) }
+        }
         item {
             Spacer(Modifier.height(6.dp))
             Text("AGGIORNAMENTI", style = MaterialTheme.typography.labelMedium,
@@ -808,9 +857,10 @@ private fun UpdateSettingCard(
 
 @Composable
 private fun SettingCard(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, description: String,
-                        value: Boolean, onChange: () -> Unit) {
+                        value: Boolean, onChange: () -> Unit, enabled: Boolean = true) {
     ElevatedCard(shape = RoundedCornerShape(22.dp)) {
-        Row(Modifier.fillMaxWidth().clickable(onClick = onChange).padding(18.dp),
+        Row(Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.55f)
+            .clickable(enabled = enabled, onClick = onChange).padding(18.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primaryContainer,
                 modifier = Modifier.size(42.dp)) {
@@ -825,7 +875,7 @@ private fun SettingCard(icon: androidx.compose.ui.graphics.vector.ImageVector, t
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.width(8.dp))
-            Switch(checked = value, onCheckedChange = { onChange() })
+            Switch(checked = value, enabled = enabled, onCheckedChange = { onChange() })
         }
     }
 }

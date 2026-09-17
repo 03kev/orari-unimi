@@ -41,6 +41,26 @@ data class SearchItem(
 data class SavedSubject(val year: String, val code: String, val name: String)
 data class FavoriteCourse(val year: String, val code: String, val name: String, val degreeType: DegreeType)
 
+data class NotificationPreferences(
+    val enabled: Boolean = false,
+    val importantChanges: Boolean = false,
+    val lessonReminders: Boolean = false,
+    val appUpdates: Boolean = false,
+    val reminderMinutes: Int = 30
+)
+
+enum class AppNotificationType { IMPORTANT_CHANGE, LESSON_REMINDER, APP_UPDATE }
+
+data class AppNotificationEntry(
+    val id: String,
+    val type: AppNotificationType,
+    val title: String,
+    val message: String,
+    val timestampMillis: Long,
+    val targetDate: LocalDate? = null,
+    val read: Boolean = false
+)
+
 data class Lesson(
     val id: String,
     val subjectCode: String,
