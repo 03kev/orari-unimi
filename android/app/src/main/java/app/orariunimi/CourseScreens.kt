@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material3.Button
@@ -69,6 +70,7 @@ fun DegreeBadge(type: DegreeType) {
 fun CourseDetailScreen(
     course: SearchItem, year: String, favorite: Boolean, savedSubjects: List<SavedSubject>,
     onToggleFavorite: () -> Unit, onOpenCalendar: () -> Unit, onOpenAgenda: () -> Unit,
+    onOpenExams: () -> Unit,
     onOpenTeaching: (CourseTeaching) -> Unit, onToggleTeaching: (CourseTeaching) -> Unit
 ) {
     val type = course.degreeType ?: DegreeType.OTHER
@@ -101,6 +103,12 @@ fun CourseDetailScreen(
                     Icon(Icons.Outlined.CalendarMonth, contentDescription = null, Modifier.size(19.dp))
                     Spacer(Modifier.width(9.dp))
                     Text("Apri calendario del corso")
+                }
+                FilledTonalButton(onClick = onOpenExams,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                    Icon(Icons.Outlined.EventAvailable, contentDescription = null, Modifier.size(19.dp))
+                    Spacer(Modifier.width(9.dp))
+                    Text("Vedi gli appelli del corso")
                 }
                 FilledTonalButton(onClick = onToggleFavorite,
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {

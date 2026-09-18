@@ -15,7 +15,9 @@ data class ScheduleSnapshot(val lessons: List<Lesson>, val updatedAtMillis: Long
 /** The same public AgendaWeb endpoints and response fields used by the Go client. */
 class UnimiApi(
     private val baseUrl: String = "https://orari-be.divsi.unimi.it/AgendaWeb/Orario/",
-    private val cache: ResponseCache? = null
+    private val cache: ResponseCache? = null,
+    private val clockMillis: () -> Long = System::currentTimeMillis,
+    private val transport: ((path: String, encoded: String, get: Boolean) -> String)? = null
 ) {
     private val dateFormat = DateTimeFormatter.ofPattern("dd-MM-yyyy")
 
@@ -23,6 +25,12 @@ class UnimiApi(
         const val CATALOG_MAX_AGE = 12L * 60 * 60 * 1000
         const val CATALOG_STALE_MAX_AGE = 7L * 24 * 60 * 60 * 1000
         const val SCHEDULE_OFFLINE_MAX_AGE = 24L * 60 * 60 * 1000
+        const val SCHEDULE_FRESH_MAX_AGE = 2L * 60 * 1000
+        const val SAVED_SUBJECT_BATCH_SIZE = 20
+
+        // Every caller in the app process shares these locks, including WorkManager and Compose.
+        // A second request with the same key waits for the first and reuses the response it wrote.
+        val scheduleLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
     }
 
     private data class ScheduleRequest(val path: String, val encoded: String, val cacheKey: String)
@@ -93,52 +101,97 @@ class UnimiApi(
 
     fun cachedLessons(year: String, item: SearchItem): ScheduleSnapshot? {
         val request = scheduleRequest(year, item)
-        val entry = cache?.readEntry(request.cacheKey, SCHEDULE_OFFLINE_MAX_AGE) ?: return null
-        return ScheduleSnapshot(parseLessons(entry.value), entry.storedAtMillis)
+        return cachedSnapshot(request, SCHEDULE_OFFLINE_MAX_AGE)
     }
 
-    fun refreshLessons(year: String, item: SearchItem): ScheduleSnapshot {
-        val request = scheduleRequest(year, item)
-        val response = fetch(request.path, request.encoded, get = false)
-        val storedAt = cache?.write(request.cacheKey, response) ?: System.currentTimeMillis()
-        return ScheduleSnapshot(parseLessons(response), storedAt)
-    }
+    fun refreshLessons(year: String, item: SearchItem): ScheduleSnapshot =
+        loadSnapshot(scheduleRequest(year, item), force = true)
+
+    fun refreshLessonsIfStale(year: String, item: SearchItem): ScheduleSnapshot =
+        loadSnapshot(scheduleRequest(year, item), force = false)
 
     fun cachedSavedLessons(saved: List<SavedSubject>): ScheduleSnapshot? {
-        if (saved.isEmpty()) return ScheduleSnapshot(emptyList(), System.currentTimeMillis())
-        val snapshots = saved.map { subject ->
-            cachedLessons(subject.year, SearchItem(subject.code, subject.name, SearchKind.SUBJECT)) ?: return null
+        if (saved.isEmpty()) return ScheduleSnapshot(emptyList(), clockMillis())
+        cachedSavedBatches(saved, SCHEDULE_OFFLINE_MAX_AGE)?.let { return it }
+        // Compatibility with caches created by versions that fetched each subject separately.
+        return cachedSavedSubjects(saved, SCHEDULE_OFFLINE_MAX_AGE)
+    }
+
+    fun refreshSavedLessons(saved: List<SavedSubject>): ScheduleSnapshot =
+        loadSavedLessons(saved, force = true)
+
+    fun refreshSavedLessonsIfStale(saved: List<SavedSubject>): ScheduleSnapshot =
+        loadSavedLessons(saved, force = false)
+
+    private fun loadSavedLessons(saved: List<SavedSubject>, force: Boolean): ScheduleSnapshot {
+        if (saved.isEmpty()) return ScheduleSnapshot(emptyList(), clockMillis())
+        if (!force) {
+            cachedSavedBatches(saved, SCHEDULE_FRESH_MAX_AGE)?.let { return it }
+            cachedSavedSubjects(saved, SCHEDULE_FRESH_MAX_AGE)?.let { return it }
         }
+        return mergeSnapshots(savedRequests(saved).map { loadSnapshot(it, force) })
+    }
+
+    private fun cachedSavedBatches(saved: List<SavedSubject>, maxAgeMillis: Long): ScheduleSnapshot? =
+        mergeCached(savedRequests(saved), maxAgeMillis)
+
+    private fun cachedSavedSubjects(saved: List<SavedSubject>, maxAgeMillis: Long): ScheduleSnapshot? {
+        val requests = saved.distinctBy { it.year to it.code }
+            .map { scheduleRequest(it.year, SearchItem(it.code, it.name, SearchKind.SUBJECT)) }
+        return mergeCached(requests, maxAgeMillis)
+    }
+
+    private fun mergeCached(requests: List<ScheduleRequest>, maxAgeMillis: Long): ScheduleSnapshot? {
+        val snapshots = requests.map { cachedSnapshot(it, maxAgeMillis) ?: return null }
         return mergeSnapshots(snapshots)
     }
 
-    fun refreshSavedLessons(saved: List<SavedSubject>): ScheduleSnapshot = mergeSnapshots(saved.map { subject ->
-        refreshLessons(subject.year, SearchItem(subject.code, subject.name, SearchKind.SUBJECT))
-    })
+    private fun savedRequests(saved: List<SavedSubject>): List<ScheduleRequest> = saved
+        .distinctBy { it.year to it.code }
+        .groupBy { it.year }
+        .toSortedMap()
+        .flatMap { (year, subjects) ->
+            subjects.sortedBy { it.code }.chunked(SAVED_SUBJECT_BATCH_SIZE).map { batch ->
+                scheduleRequest(year, batch.map {
+                    SearchItem(it.code, it.name, SearchKind.SUBJECT)
+                })
+            }
+        }
 
     private fun mergeSnapshots(snapshots: List<ScheduleSnapshot>): ScheduleSnapshot {
         val lessons = snapshots.flatMap { it.lessons }
             .distinctBy { it.id.ifBlank { "${it.subjectCode}|${it.date}|${it.start}|${it.room}" } }
             .sortedWith(compareBy<Lesson> { it.date }.thenBy { it.start }.thenBy { it.subject })
-        return ScheduleSnapshot(lessons, snapshots.minOfOrNull { it.updatedAtMillis } ?: System.currentTimeMillis())
+        return ScheduleSnapshot(lessons, snapshots.minOfOrNull { it.updatedAtMillis } ?: clockMillis())
     }
 
-    private fun scheduleRequest(year: String, item: SearchItem): ScheduleRequest {
+    private fun scheduleRequest(year: String, item: SearchItem): ScheduleRequest =
+        scheduleRequest(year, listOf(item))
+
+    private fun scheduleRequest(year: String, items: List<SearchItem>): ScheduleRequest {
+        require(items.isNotEmpty()) { "Selezione orario vuota." }
+        val kind = items.first().kind
+        require(items.all { it.kind == kind }) { "Una richiesta non può mescolare tipi di calendario." }
+        require(kind == SearchKind.SUBJECT || items.size == 1) {
+            "Solo gli insegnamenti possono essere raggruppati."
+        }
         val fields = mutableListOf<Pair<String, String>>()
-        when (item.kind) {
+        when (kind) {
             SearchKind.COURSE -> {
+                val item = items.single()
                 require(item.paths.isNotEmpty()) { "Il corso non ha percorsi pubblicati per l'anno $year." }
                 fields += "include" to "corso"
                 fields += "corso" to item.code
                 item.paths.forEach { fields += "anno2[]" to it }
             }
             SearchKind.TEACHER -> {
+                val item = items.single()
                 fields += "include" to "docente"
                 fields += "docente" to item.code
             }
             SearchKind.SUBJECT -> {
                 fields += "include" to "attivita"
-                fields += "attivita[]" to item.code
+                items.map { it.code }.distinct().sorted().forEach { fields += "attivita[]" to it }
             }
         }
         fields += "view" to "easycourse"
@@ -148,6 +201,30 @@ class UnimiApi(
         fields += "all_events" to "1"
         val encoded = encode(fields)
         return ScheduleRequest("grid_call.php", encoded, cacheKey("grid_call.php", encoded, get = false))
+    }
+
+    private fun cachedSnapshot(request: ScheduleRequest, maxAgeMillis: Long): ScheduleSnapshot? {
+        val entry = cache?.readEntry(request.cacheKey, maxAgeMillis) ?: return null
+        return ScheduleSnapshot(parseLessons(entry.value), entry.storedAtMillis)
+    }
+
+    private fun loadSnapshot(request: ScheduleRequest, force: Boolean): ScheduleSnapshot {
+        val startedAt = clockMillis()
+        if (!force) cachedSnapshot(request, SCHEDULE_FRESH_MAX_AGE)?.let { return it }
+        val lock = scheduleLocks.computeIfAbsent(request.cacheKey) { Any() }
+        return synchronized(lock) {
+            val existing = cache?.readEntry(request.cacheKey, SCHEDULE_OFFLINE_MAX_AGE)
+            if (existing != null) {
+                val age = (clockMillis() - existing.storedAtMillis).coerceAtLeast(0)
+                // Also coalesce concurrent forced refreshes that started before this response was saved.
+                if (existing.storedAtMillis >= startedAt || !force && age <= SCHEDULE_FRESH_MAX_AGE) {
+                    return@synchronized ScheduleSnapshot(parseLessons(existing.value), existing.storedAtMillis)
+                }
+            }
+            val response = fetch(request.path, request.encoded, get = false)
+            val storedAt = cache?.write(request.cacheKey, response) ?: clockMillis()
+            ScheduleSnapshot(parseLessons(response), storedAt)
+        }
     }
 
     private fun parseLessons(body: String): List<Lesson> {
@@ -201,6 +278,7 @@ class UnimiApi(
         "${if (get) "GET" else "POST"}|$baseUrl$path|$encoded"
 
     private fun fetch(path: String, encoded: String, get: Boolean): String {
+        transport?.let { return it(path, encoded, get) }
         val connection = URL(baseUrl + path + if (get) "?$encoded" else "").openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 30_000

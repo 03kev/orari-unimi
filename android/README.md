@@ -15,6 +15,13 @@ tra la modalità giornaliera e quella settimanale, con scorrimento libero in
 entrambe le direzioni. È disponibile sia per il calendario personale sia per i
 corsi di laurea. Il widget riassume le lezioni del giorno in formato agenda e
 consente di passare al giorno precedente o successivo.
+La sezione Appelli consulta gli esami pubblicati per ogni corso di laurea e li
+raggruppa per data. Si possono vedere gli appelli di oggi, dei prossimi 30 giorni
+o tutti quelli programmati, controllare aula, docente, tipo di prova e periodo
+di iscrizione e aggiungere un appello al calendario Android. I corsi preferiti
+sono disponibili come accesso rapido e la stessa sezione si apre direttamente
+dalla pagina di un corso. Origine dei dati, cache e limiti sono descritti in
+[docs/EXAMS.md](docs/EXAMS.md).
 Nelle Preferenze l'app controlla le release pubblicate su GitHub e, quando è
 disponibile una versione più recente, può scaricare e verificare l'APK prima di
 aprire l'installer di sistema. Android richiede sempre la conferma dell'utente
@@ -32,13 +39,18 @@ Se il record di un corso non elenca ancora gli insegnamenti, l'app cerca quelli
 associati al suo codice nell'elenco generale pubblicato dal portale per lo
 stesso anno accademico.
 
-La ricerca e gli orari richiedono una connessione Internet. Insegnamenti, corsi
+La ricerca, gli orari e gli appelli richiedono una connessione Internet. Insegnamenti, corsi
 preferiti e preferenze sono memorizzati solo nell'app sul dispositivo; non si
 sincronizzano automaticamente con la versione per terminale.
 I calendari già scaricati vengono mostrati subito e aggiornati in background
-ogni volta che vengono aperti. Se il portale non risponde, l'app può usare un
+quando l'ultima risposta ha più di due minuti; il refresh manuale forza sempre
+un nuovo controllo. Gli insegnamenti salvati dello stesso anno vengono richiesti
+insieme per evitare chiamate ripetute. Il funzionamento e il percorso previsto
+per un futuro backend sono documentati in
+[docs/SCHEDULE_SYNC.md](docs/SCHEDULE_SYNC.md). Se il portale non risponde, l'app può usare un
 orario salvato da non più di 24 ore e indica chiaramente data e ora dei dati
-offline. I cataloghi restano validi per 12 ore e possono essere recuperati fino
+offline. Anche gli appelli vengono conservati per un massimo di 24 ore come
+ripiego offline. I cataloghi restano validi per 12 ore e possono essere recuperati fino
 a sette giorni in caso di errore del portale. La cache è limitata a 8 MB ed è
 gestita automaticamente da Android.
 

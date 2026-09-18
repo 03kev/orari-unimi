@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
 
 class NotificationEngineTest {
     private val today = LocalDate.of(2026, 9, 17)
@@ -65,6 +67,22 @@ class NotificationEngineTest {
             allowSystemNotification = false, appInForeground = false))
         assertEquals(false, NotificationDeliveryPolicy.shouldPostSystem(
             allowSystemNotification = false, appInForeground = true))
+    }
+
+    @Test fun reminderDelayTargetsConfiguredLeadTimeAndNeverBecomesNegative() {
+        val start = LocalDateTime.of(2026, 9, 18, 10, 0)
+        assertEquals(30L * 60 * 1000,
+            reminderDelayMillis(start, 30, LocalDateTime.of(2026, 9, 18, 9, 0)))
+        assertEquals(0L,
+            reminderDelayMillis(start, 30, LocalDateTime.of(2026, 9, 18, 9, 45)))
+    }
+
+    @Test fun reminderDelayUsesRealElapsedTimeAcrossDaylightSavingChanges() {
+        val zone = ZoneId.of("Europe/Rome")
+        val start = LocalDateTime.of(2026, 10, 26, 10, 0)
+        val now = LocalDateTime.of(2026, 10, 24, 10, 0)
+        assertEquals((48L * 60 + 30) * 60 * 1000,
+            reminderDelayMillis(start, 30, now, zone))
     }
 
     private fun lesson(

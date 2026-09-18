@@ -21,8 +21,8 @@ android {
         applicationId = "app.orariunimi"
         minSdk = 26
         targetSdk = 36
-        versionCode = 15
-        versionName = "1.5.3"
+        versionCode = 16
+        versionName = "1.5.4"
     }
 
     signingConfigs {
@@ -81,4 +81,5 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.12.4")
     implementation("androidx.work:work-runtime:2.11.2")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20260814")
 }

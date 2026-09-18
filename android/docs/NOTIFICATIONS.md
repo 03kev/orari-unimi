@@ -36,14 +36,24 @@ piano dell'app richiede inoltre un controllo immediato di tutte le categorie
 abilitate; WorkManager accorpa e sostituisce le richieste immediate omonime per
 evitare controlli simultanei duplicati.
 
+Dalla versione 1.5.4 i recuperi automatici condividono una finestra di
+freschezza di due minuti: se l'interfaccia o un altro worker hanno appena
+ottenuto gli stessi dati, il controllo riutilizza quella risposta. Gli
+insegnamenti salvati dello stesso anno vengono inoltre richiesti insieme, in
+gruppi da massimo 20. Il refresh manuale continua a forzare la rete. Dettagli e
+vincoli sono raccolti in [Sincronizzazione locale degli orari](SCHEDULE_SYNC.md).
+
 I controlli avviati mentre si usa l'app, inclusi quelli richiesti trascinando il
 centro notifiche verso il basso, aggiungono gli avvisi soltanto al centro interno.
 Le notifiche di sistema vengono pubblicate esclusivamente dai controlli periodici
 eseguiti mentre l'app è chiusa o in background. Un avviso già registrato dentro
 l'app non viene ripubblicato nel sistema per la stessa variazione o versione.
 
-I promemoria dipendono quindi dall'esecuzione concessa dal sistema e non devono
-essere considerati una sveglia esatta. Su Android 13 o successivo serve anche il
+Il recupero periodico programma un lavoro singolo per l'anticipo della prossima
+lezione. Una fotografia successiva lo lascia invariato, lo sostituisce o lo
+cancella in base al nuovo orario. Il promemoria non effettua richieste di rete,
+ma dipende comunque dall'esecuzione concessa dal sistema e non deve essere
+considerato una sveglia esatta. Su Android 13 o successivo serve anche il
 permesso di sistema per mostrare gli avvisi. Se il permesso viene revocato, gli
 eventi possono comunque essere conservati nel centro notifiche locale.
 

@@ -24,6 +24,7 @@ import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -33,7 +34,14 @@ object NotificationScheduler {
     private const val SCHEDULE_NOW = "schedule-notifications-now"
     private const val UPDATES_PERIODIC = "update-notifications-periodic"
     private const val UPDATES_NOW = "update-notifications-now"
+    private const val LESSON_REMINDER = "next-lesson-reminder"
     internal const val INTERNAL_ONLY = "internal-only"
+    internal const val FORCE_REFRESH = "force-refresh"
+    private const val REMINDER_KEY = "reminder-key"
+    private const val REMINDER_ID = "reminder-id"
+    private const val REMINDER_TITLE = "reminder-title"
+    private const val REMINDER_MESSAGE = "reminder-message"
+    private const val REMINDER_DATE = "reminder-date"
     private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
     fun configure(context: Context, runNow: Boolean = false) {
@@ -45,6 +53,7 @@ object NotificationScheduler {
             work.cancelUniqueWork(SCHEDULE_NOW)
             work.cancelUniqueWork(UPDATES_PERIODIC)
             work.cancelUniqueWork(UPDATES_NOW)
+            cancelLessonReminder(appContext)
             NotificationPublisher.cancelAll(appContext)
             return
         }
@@ -58,6 +67,7 @@ object NotificationScheduler {
             work.cancelUniqueWork(SCHEDULE_PERIODIC)
             work.cancelUniqueWork(SCHEDULE_NOW)
         }
+        if (!preferences.lessonReminders) cancelLessonReminder(appContext)
 
         if (preferences.appUpdates) {
             val periodic = PeriodicWorkRequestBuilder<AppUpdateNotificationWorker>(15, TimeUnit.MINUTES)
@@ -75,7 +85,42 @@ object NotificationScheduler {
         val appContext = context.applicationContext
         val preferences = LocalStore(appContext).notificationPreferences
         if (!preferences.enabled) return emptyList()
-        return enqueueNow(WorkManager.getInstance(appContext), preferences)
+        return enqueueNow(WorkManager.getInstance(appContext), preferences, forceRefresh = true)
+    }
+
+    fun scheduleLessonReminder(
+        context: Context,
+        lesson: Lesson,
+        start: LocalDateTime,
+        leadMinutes: Int,
+        now: LocalDateTime = LocalDateTime.now()
+    ) {
+        val appContext = context.applicationContext
+        val store = LocalStore(appContext)
+        val key = "${NotificationEngine.lessonIdentity(lesson)}|${lesson.date}|${lesson.start}"
+        if (store.lastLessonReminderKey == key) return
+        val target = start.minusMinutes(leadMinutes.toLong())
+        val targetMillis = target.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        if (store.scheduledLessonReminder() == (key to targetMillis)) return
+        val message = "${lesson.subject} alle ${lesson.start}${if (lesson.room.isBlank()) "" else " · ${lesson.room}"}"
+        val request = OneTimeWorkRequestBuilder<LessonReminderWorker>()
+            .setInitialDelay(reminderDelayMillis(start, leadMinutes, now), TimeUnit.MILLISECONDS)
+            .setInputData(workDataOf(
+                REMINDER_KEY to key,
+                REMINDER_ID to "reminder-${NotificationEngine.lessonFingerprint(lesson)}",
+                REMINDER_TITLE to "Prossima lezione",
+                REMINDER_MESSAGE to message,
+                REMINDER_DATE to lesson.date.toString()
+            ))
+            .build()
+        WorkManager.getInstance(appContext)
+            .enqueueUniqueWork(LESSON_REMINDER, ExistingWorkPolicy.REPLACE, request)
+        store.setScheduledLessonReminder(key, targetMillis)
+    }
+
+    fun cancelLessonReminder(context: Context) {
+        WorkManager.getInstance(context.applicationContext).cancelUniqueWork(LESSON_REMINDER)
+        LocalStore(context.applicationContext).clearScheduledLessonReminder()
     }
 
     fun waitForRefresh(context: Context, ids: List<UUID>, timeoutMillis: Long = 30_000L): Boolean {
@@ -99,11 +144,15 @@ object NotificationScheduler {
         return false
     }
 
-    private fun enqueueNow(work: WorkManager, preferences: NotificationPreferences): List<UUID> {
+    private fun enqueueNow(
+        work: WorkManager,
+        preferences: NotificationPreferences,
+        forceRefresh: Boolean = false
+    ): List<UUID> {
         val ids = mutableListOf<UUID>()
         if (preferences.importantChanges || preferences.lessonReminders) {
             val request = OneTimeWorkRequestBuilder<ScheduleNotificationWorker>()
-                .setInputData(workDataOf(INTERNAL_ONLY to true))
+                .setInputData(workDataOf(INTERNAL_ONLY to true, FORCE_REFRESH to forceRefresh))
                 .setConstraints(network).build()
             work.enqueueUniqueWork(SCHEDULE_NOW, ExistingWorkPolicy.REPLACE, request)
             ids += request.id
@@ -122,6 +171,7 @@ object NotificationScheduler {
 class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters) : Worker(context, parameters) {
     override fun doWork(): Result {
         val allowSystemNotification = !inputData.getBoolean(NotificationScheduler.INTERNAL_ONLY, false)
+        val forceRefresh = inputData.getBoolean(NotificationScheduler.FORCE_REFRESH, false)
         val store = LocalStore(applicationContext)
         val preferences = store.notificationPreferences
         if (!preferences.enabled || !preferences.importantChanges && !preferences.lessonReminders) return Result.success()
@@ -133,8 +183,8 @@ class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters)
         }
 
         val snapshot = try {
-            UnimiApi(cache = ResponseCache(File(applicationContext.cacheDir, "orari-responses")))
-                .refreshSavedLessons(saved)
+            val api = UnimiApi(cache = ResponseCache(File(applicationContext.cacheDir, "orari-responses")))
+            if (forceRefresh) api.refreshSavedLessons(saved) else api.refreshSavedLessonsIfStale(saved)
         } catch (_: Exception) {
             return Result.retry()
         }
@@ -143,7 +193,7 @@ class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters)
         if (preferences.importantChanges) processChanges(
             store, baselineStore, snapshot.lessons, now.toLocalDate(), allowSystemNotification)
         if (preferences.lessonReminders) processReminder(
-            store, snapshot.lessons, now, preferences.reminderMinutes, allowSystemNotification)
+            snapshot.lessons, now, preferences.reminderMinutes)
         return Result.success()
     }
 
@@ -190,37 +240,60 @@ class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters)
     }
 
     private fun processReminder(
-        store: LocalStore,
         lessons: List<Lesson>,
         now: LocalDateTime,
-        leadMinutes: Int,
-        allowSystemNotification: Boolean
+        leadMinutes: Int
     ) {
         val next = lessons.asSequence().filter { !it.cancelled }.mapNotNull { lesson ->
             val start = runCatching {
                 LocalDateTime.of(lesson.date, LocalTime.parse(lesson.start, DateTimeFormatter.ofPattern("H:mm")))
             }.getOrNull() ?: return@mapNotNull null
             if (start.isBefore(now)) null else lesson to start
-        }.minByOrNull { it.second } ?: return
-        val minutes = Duration.between(now, next.second).toMinutes()
-        if (minutes !in 0..leadMinutes.toLong()) return
-        val lesson = next.first
-        val key = "${NotificationEngine.lessonIdentity(lesson)}|${lesson.date}|${lesson.start}"
-        if (store.lastLessonReminderKey == key) return
-        val entry = AppNotificationEntry(
-            id = "reminder-${NotificationEngine.lessonFingerprint(lesson)}",
-            type = AppNotificationType.LESSON_REMINDER,
-            title = "Prossima lezione",
-            message = "${lesson.subject} alle ${lesson.start}${if (lesson.room.isBlank()) "" else " · ${lesson.room}"}",
-            timestampMillis = System.currentTimeMillis(),
-            targetDate = lesson.date
-        )
-        store.lastLessonReminderKey = key
-        if (store.addNotification(entry)) {
-            NotificationPublisher.post(applicationContext, entry, allowSystemNotification)
+        }.minByOrNull { it.second } ?: run {
+            NotificationScheduler.cancelLessonReminder(applicationContext)
+            return
         }
+        val lesson = next.first
+        NotificationScheduler.scheduleLessonReminder(applicationContext, lesson, next.second, leadMinutes, now)
     }
 }
+
+class LessonReminderWorker(context: Context, parameters: WorkerParameters) : Worker(context, parameters) {
+    override fun doWork(): Result {
+        val store = LocalStore(applicationContext)
+        val key = inputData.getString("reminder-key") ?: return Result.failure()
+        if (!store.notificationPreferences.let { it.enabled && it.lessonReminders }) {
+            store.clearScheduledLessonReminder()
+            return Result.success()
+        }
+        if (store.scheduledLessonReminder()?.first != key) return Result.success()
+        if (store.lastLessonReminderKey == key) return Result.success()
+        val entry = AppNotificationEntry(
+            id = inputData.getString("reminder-id") ?: return Result.failure(),
+            type = AppNotificationType.LESSON_REMINDER,
+            title = inputData.getString("reminder-title") ?: "Prossima lezione",
+            message = inputData.getString("reminder-message").orEmpty(),
+            timestampMillis = System.currentTimeMillis(),
+            targetDate = inputData.getString("reminder-date")?.let {
+                runCatching { LocalDate.parse(it) }.getOrNull()
+            }
+        )
+        store.lastLessonReminderKey = key
+        store.clearScheduledLessonReminder()
+        if (store.addNotification(entry)) NotificationPublisher.post(applicationContext, entry)
+        return Result.success()
+    }
+}
+
+internal fun reminderDelayMillis(
+    start: LocalDateTime,
+    leadMinutes: Int,
+    now: LocalDateTime,
+    zone: ZoneId = ZoneId.systemDefault()
+): Long = Duration.between(
+    now.atZone(zone).toInstant(),
+    start.minusMinutes(leadMinutes.toLong()).atZone(zone).toInstant()
+).toMillis().coerceAtLeast(0L)
 
 class AppUpdateNotificationWorker(context: Context, parameters: WorkerParameters) : Worker(context, parameters) {
     override fun doWork(): Result {

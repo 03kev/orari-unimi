@@ -40,6 +40,26 @@ class LocalStore(context: Context) {
         get() = preferences.getString("last_lesson_reminder_key", null)
         set(value) { preferences.edit().putString("last_lesson_reminder_key", value).commit() }
 
+    fun scheduledLessonReminder(): Pair<String, Long>? {
+        val key = preferences.getString("scheduled_lesson_reminder_key", null) ?: return null
+        val atMillis = preferences.getLong("scheduled_lesson_reminder_at", -1L)
+        return if (atMillis >= 0L) key to atMillis else null
+    }
+
+    fun setScheduledLessonReminder(key: String, atMillis: Long) {
+        preferences.edit()
+            .putString("scheduled_lesson_reminder_key", key)
+            .putLong("scheduled_lesson_reminder_at", atMillis)
+            .commit()
+    }
+
+    fun clearScheduledLessonReminder() {
+        preferences.edit()
+            .remove("scheduled_lesson_reminder_key")
+            .remove("scheduled_lesson_reminder_at")
+            .commit()
+    }
+
     var lastUpdateNotificationVersion: String?
         get() = preferences.getString("last_update_notification_version", null)
         set(value) { preferences.edit().putString("last_update_notification_version", value).commit() }
