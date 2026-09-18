@@ -137,7 +137,7 @@ class LocalStore(context: Context) {
 
     fun savedExamAppeals(): List<ExamAppeal> = try {
         val values = JSONArray(preferences.getString("saved_exam_appeals", "[]"))
-        (0 until values.length()).mapNotNull { index ->
+        val parsed = (0 until values.length()).mapNotNull { index ->
             val value = values.optJSONObject(index) ?: return@mapNotNull null
             runCatching {
                 ExamAppeal(
@@ -161,7 +161,13 @@ class LocalStore(context: Context) {
                         ?.let(java.time.LocalDate::parse)
                 )
             }.getOrNull()
-        }.sortedWith(compareBy<ExamAppeal> { it.date }.thenBy { it.time }.thenBy { it.subjectName })
+        }
+        val (expired, active) = parsed.partition { it.date.isBefore(java.time.LocalDate.now()) }
+        if (expired.isNotEmpty()) {
+            saveExamAppeals(active)
+            removeExamNotes(expired)
+        }
+        active.sortedWith(compareBy<ExamAppeal> { it.date }.thenBy { it.time }.thenBy { it.subjectName })
     } catch (_: Exception) {
         emptyList()
     }
@@ -173,9 +179,31 @@ class LocalStore(context: Context) {
         return true
     }
 
-    fun removeSavedExamAppeal(appeal: ExamAppeal) = saveExamAppeals(
-        savedExamAppeals().filterNot { it.id == appeal.id && it.courseCode == appeal.courseCode }
-    )
+    fun removeSavedExamAppeal(appeal: ExamAppeal) {
+        saveExamAppeals(savedExamAppeals().filterNot {
+            it.id == appeal.id && it.courseCode == appeal.courseCode
+        })
+        removeExamNotes(listOf(appeal))
+    }
+
+    fun examNote(appeal: ExamAppeal): String = try {
+        JSONObject(preferences.getString("saved_exam_notes", "{}") ?: "{}")
+            .optString(examAppealKey(appeal))
+    } catch (_: Exception) {
+        ""
+    }
+
+    fun setExamNote(appeal: ExamAppeal, note: String) {
+        val notes = try {
+            JSONObject(preferences.getString("saved_exam_notes", "{}") ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+        val normalized = note.trim()
+        if (normalized.isBlank()) notes.remove(examAppealKey(appeal))
+        else notes.put(examAppealKey(appeal), normalized)
+        preferences.edit().putString("saved_exam_notes", notes.toString()).commit()
+    }
 
     fun refreshSavedExamAppeals(freshAppeals: List<ExamAppeal>): Boolean {
         val current = savedExamAppeals()
@@ -227,6 +255,25 @@ class LocalStore(context: Context) {
         }
         preferences.edit().putString("saved_exam_appeals", values.toString()).commit()
     }
+
+    private fun removeExamNotes(appeals: List<ExamAppeal>) {
+        if (appeals.isEmpty()) return
+        val notes = try {
+            JSONObject(preferences.getString("saved_exam_notes", "{}") ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+        var changed = false
+        appeals.forEach { appeal ->
+            if (notes.has(examAppealKey(appeal))) {
+                notes.remove(examAppealKey(appeal))
+                changed = true
+            }
+        }
+        if (changed) preferences.edit().putString("saved_exam_notes", notes.toString()).commit()
+    }
+
+    private fun examAppealKey(appeal: ExamAppeal): String = "${appeal.courseCode}:${appeal.id}"
 
     private fun readNotifications(): List<AppNotificationEntry> = try {
         val values = JSONArray(preferences.getString("notification_inbox", "[]"))

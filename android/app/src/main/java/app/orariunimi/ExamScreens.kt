@@ -1,6 +1,13 @@
 package app.orariunimi
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
@@ -467,12 +474,14 @@ private fun ExamFreshness(
 fun ExamPlannerScreen(
     savedAppeals: List<ExamAppeal>,
     selectedAppeal: ExamAppeal?,
+    savedNote: String,
     onSelectAppeal: (ExamAppeal) -> Unit,
+    onSaveNote: (ExamAppeal, String) -> Unit,
     onRemoveAppeal: (ExamAppeal) -> Unit,
     onAddToCalendar: (ExamAppeal) -> Unit
 ) {
     if (selectedAppeal != null) {
-        ExamAppealDetails(selectedAppeal, onRemoveAppeal, onAddToCalendar)
+        ExamAppealDetails(selectedAppeal, savedNote, onSaveNote, onRemoveAppeal, onAddToCalendar)
         return
     }
     val today = LocalDate.now()
@@ -491,8 +500,10 @@ fun ExamPlannerScreen(
     }
 
     fun moveMonth(amount: Long) {
-        month = month.plusMonths(amount)
-        selectedDay = month.atDay(1)
+        val target = month.plusMonths(amount)
+        val day = selectedDay.dayOfMonth.coerceAtMost(target.lengthOfMonth())
+        month = target
+        selectedDay = target.atDay(day)
     }
 
     LazyColumn(
@@ -540,27 +551,55 @@ fun ExamPlannerScreen(
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerLow
             ) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 14.dp)) {
-                    Row(Modifier.fillMaxWidth()) {
-                        listOf("L", "M", "M", "G", "V", "S", "D").forEachIndexed { index, label ->
-                            Box(Modifier.weight(1f).height(32.dp), contentAlignment = Alignment.Center) {
-                                Text(label, style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (index >= 5) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp)) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(13.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ) {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                            listOf("LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM")
+                                .forEachIndexed { index, label ->
+                                Box(Modifier.weight(1f).height(30.dp), contentAlignment = Alignment.Center) {
+                                    Text(label, style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (index >= 5) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         }
                     }
-                    monthDates(month).chunked(7).forEach { row ->
-                        Row(Modifier.fillMaxWidth()) {
-                            row.forEach { day ->
-                                ExamPlannerDay(
-                                    day = day,
-                                    selected = day == selectedDay,
-                                    today = day == today,
-                                    count = appealsByDay[day].orEmpty().size,
-                                    onSelect = { selectedDay = it }
-                                )
+                    AnimatedContent(
+                        targetState = month,
+                        transitionSpec = {
+                            val forward = targetState.isAfter(initialState)
+                            (slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) {
+                                if (forward) it / 4 else -it / 4
+                            } + fadeIn(tween(180))).togetherWith(
+                                slideOutHorizontally(tween(210, easing = FastOutSlowInEasing)) {
+                                    if (forward) -it / 4 else it / 4
+                                } + fadeOut(tween(140))
+                            )
+                        },
+                        label = "exam-month"
+                    ) { displayedMonth ->
+                        Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            completeExamMonthDates(displayedMonth).chunked(7).forEach { row ->
+                                Row(Modifier.fillMaxWidth()) {
+                                    row.forEach { day ->
+                                        ExamPlannerDay(
+                                            day = day,
+                                            inCurrentMonth = YearMonth.from(day) == displayedMonth,
+                                            selected = day == selectedDay,
+                                            today = day == today,
+                                            count = appealsByDay[day].orEmpty().size,
+                                            onSelect = {
+                                                selectedDay = it
+                                                month = YearMonth.from(it)
+                                            }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -591,36 +630,47 @@ fun ExamPlannerScreen(
 
 @Composable
 private fun RowScope.ExamPlannerDay(
-    day: LocalDate?,
+    day: LocalDate,
+    inCurrentMonth: Boolean,
     selected: Boolean,
     today: Boolean,
     count: Int,
     onSelect: (LocalDate) -> Unit
 ) {
-    if (day == null) {
-        Spacer(Modifier.weight(1f).height(48.dp))
-        return
-    }
-    Surface(
-        onClick = { onSelect(day) },
-        shape = CircleShape,
-        color = when {
-            selected -> MaterialTheme.colorScheme.primary
-            today -> MaterialTheme.colorScheme.primaryContainer
-            else -> Color.Transparent
-        },
-        modifier = Modifier.weight(1f).height(48.dp)
+    Box(
+        modifier = Modifier.weight(1f).height(56.dp).clickable { onSelect(day) },
+        contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center) {
-            Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (selected || today) FontWeight.Bold else FontWeight.Normal,
-                color = if (selected) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurface)
+            Surface(
+                shape = CircleShape,
+                color = when {
+                    selected -> MaterialTheme.colorScheme.primary
+                    today -> MaterialTheme.colorScheme.primaryContainer
+                    else -> Color.Transparent
+                },
+                modifier = Modifier.size(34.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (selected || today) FontWeight.Bold else FontWeight.Normal,
+                        color = when {
+                            selected -> MaterialTheme.colorScheme.onPrimary
+                            !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+                            today -> MaterialTheme.colorScheme.onPrimaryContainer
+                            else -> MaterialTheme.colorScheme.onSurface
+                        })
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 repeat(count.coerceAtMost(3)) {
                     Box(Modifier.size(4.dp).background(
-                        if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary,
+                        when {
+                            selected -> MaterialTheme.colorScheme.onPrimary
+                            !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                            else -> MaterialTheme.colorScheme.primary
+                        },
                         CircleShape))
                 }
             }
@@ -658,9 +708,12 @@ private fun ExamPlannerAppeal(appeal: ExamAppeal, onClick: () -> Unit) {
 @Composable
 private fun ExamAppealDetails(
     appeal: ExamAppeal,
+    savedNote: String,
+    onSaveNote: (ExamAppeal, String) -> Unit,
     onRemove: (ExamAppeal) -> Unit,
     onAddToCalendar: (ExamAppeal) -> Unit
 ) {
+    var note by remember(appeal.courseCode, appeal.id) { mutableStateOf(savedNote) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 30.dp),
@@ -672,6 +725,25 @@ private fun ExamAppealDetails(
             Text(listOf(appeal.subjectCode, appeal.subjectPortalCode).filter { it.isNotBlank() }.joinToString(" · "),
                 Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item {
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it.take(500) },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3,
+                maxLines = 6,
+                shape = RoundedCornerShape(18.dp),
+                label = { Text("Note personali") },
+                supportingText = { Text("${note.length}/500 · salvate solo su questo dispositivo") }
+            )
+            OutlinedButton(
+                onClick = { onSaveNote(appeal, note) },
+                enabled = note.trim() != savedNote,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            ) {
+                Text(if (note.isBlank()) "Rimuovi nota" else "Salva nota")
+            }
         }
         item {
             Surface(
@@ -720,6 +792,14 @@ private fun ExamAppealDetails(
             }
         }
     }
+}
+
+private fun completeExamMonthDates(month: YearMonth): List<LocalDate> {
+    val leadingDays = month.atDay(1).dayOfWeek.value - 1
+    val visibleDays = leadingDays + month.lengthOfMonth()
+    val cellCount = ((visibleDays + 6) / 7) * 7
+    val firstVisibleDay = month.atDay(1).minusDays(leadingDays.toLong())
+    return List(cellCount) { firstVisibleDay.plusDays(it.toLong()) }
 }
 
 @Composable

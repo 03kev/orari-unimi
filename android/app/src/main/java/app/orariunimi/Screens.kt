@@ -1063,8 +1063,6 @@ fun CalendarScreen(
     onMoveWeek: (Long) -> Unit, onSelectDay: (LocalDate) -> Unit
 ) {
     var showMonth by remember { mutableStateOf(false) }
-    val days = (0 until if (weekend) 7 else 5).map { week.plusDays(it.toLong()) }
-    val visibleLessons = calendar.lessons.filter { it.date == selectedDay }
     if (showMonth) MonthCalendarDialog(
         selectedDay = selectedDay,
         lessons = calendar.lessons,
@@ -1075,32 +1073,29 @@ fun CalendarScreen(
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 9.dp)) {
             WeekHeader(week, onMoveWeek, onOpenMonth = { showMonth = true })
             Spacer(Modifier.height(14.dp))
-            if (weekend) {
-                BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    val weekdayWidth = (maxWidth - 32.dp) / 5
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(days) { day ->
-                            DayTile(day, selected = day == selectedDay,
-                                count = calendar.lessons.count { it.date == day },
-                                modifier = Modifier.width(weekdayWidth), onClick = { onSelectDay(day) })
-                        }
-                    }
-                }
-            } else {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    days.forEach { day ->
-                        DayTile(day, selected = day == selectedDay,
-                            count = calendar.lessons.count { it.date == day },
-                            modifier = Modifier.weight(1f), onClick = { onSelectDay(day) })
-                    }
-                }
+            AnimatedContent(
+                targetState = week,
+                transitionSpec = {
+                    val forward = targetState.isAfter(initialState)
+                    (slideInHorizontally(tween(260, easing = FastOutSlowInEasing)) {
+                        if (forward) it / 5 else -it / 5
+                    } + fadeIn(tween(170))).togetherWith(
+                        slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) {
+                            if (forward) -it / 5 else it / 5
+                        } + fadeOut(tween(130))
+                    )
+                },
+                label = "calendar-week"
+            ) { displayedWeek ->
+                CalendarWeekStrip(calendar, displayedWeek, selectedDay, weekend, onSelectDay)
             }
             Spacer(Modifier.height(6.dp))
             CalendarFreshness(calendar, weekend, refreshing, onRefresh)
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.surfaceContainer)
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().pointerInput(selectedDay, weekend) {
+        AnimatedContent(
+            targetState = selectedDay,
+            modifier = Modifier.weight(1f).fillMaxWidth().pointerInput(selectedDay, weekend) {
                 var drag = 0f
                 detectHorizontalDragGestures(
                     onDragStart = { drag = 0f },
@@ -1113,27 +1108,84 @@ fun CalendarScreen(
                     }
                 )
             },
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                Text(selectedDay.format(dateLong).replaceFirstChar { it.titlecase(italian) },
-                    style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(3.dp))
-                Text(if (visibleLessons.isEmpty()) "Nessuna lezione" else
-                    "${visibleLessons.size} ${if (visibleLessons.size == 1) "lezione" else "lezioni"}",
-                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            transitionSpec = {
+                val forward = targetState.isAfter(initialState)
+                (slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) {
+                    if (forward) it / 6 else -it / 6
+                } + fadeIn(tween(170))).togetherWith(
+                    slideOutHorizontally(tween(210, easing = FastOutSlowInEasing)) {
+                        if (forward) -it / 6 else it / 6
+                    } + fadeOut(tween(130))
+                )
+            },
+            label = "calendar-day"
+        ) { displayedDay ->
+            CalendarDayLessons(calendar, displayedDay, savedSubjects, onToggleSubject)
+        }
+    }
+}
+
+@Composable
+private fun CalendarWeekStrip(
+    calendar: CalendarData,
+    week: LocalDate,
+    selectedDay: LocalDate,
+    weekend: Boolean,
+    onSelectDay: (LocalDate) -> Unit
+) {
+    val days = (0 until if (weekend) 7 else 5).map { week.plusDays(it.toLong()) }
+    if (weekend) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val weekdayWidth = (maxWidth - 32.dp) / 5
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(days) { day ->
+                    DayTile(day, selected = day == selectedDay,
+                        count = calendar.lessons.count { it.date == day },
+                        modifier = Modifier.width(weekdayWidth), onClick = { onSelectDay(day) })
+                }
             }
-            if (visibleLessons.isEmpty()) item {
-                EmptyCard("Nessuna lezione in questo giorno", "Scegli un’altra data o cambia settimana.")
+        }
+    } else {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            days.forEach { day ->
+                DayTile(day, selected = day == selectedDay,
+                    count = calendar.lessons.count { it.date == day },
+                    modifier = Modifier.weight(1f), onClick = { onSelectDay(day) })
             }
-            items(visibleLessons, key = { "${it.id}:${it.subjectCode}:${it.start}" }) { lesson ->
-                val canSave = calendar.source?.kind == SearchKind.COURSE ||
-                    calendar.source?.kind == SearchKind.TEACHER
-                LessonCard(lesson,
-                    saved = savedSubjects.any { it.year == calendar.year && it.code == lesson.subjectCode },
-                    onToggleSave = if (canSave) {{ onToggleSubject(lesson) }} else null)
-            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarDayLessons(
+    calendar: CalendarData,
+    day: LocalDate,
+    savedSubjects: List<SavedSubject>,
+    onToggleSubject: (Lesson) -> Unit
+) {
+    val visibleLessons = calendar.lessons.filter { it.date == day }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text(day.format(dateLong).replaceFirstChar { it.titlecase(italian) },
+                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(3.dp))
+            Text(if (visibleLessons.isEmpty()) "Nessuna lezione" else
+                "${visibleLessons.size} ${if (visibleLessons.size == 1) "lezione" else "lezioni"}",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (visibleLessons.isEmpty()) item {
+            EmptyCard("Nessuna lezione in questo giorno", "Scegli un’altra data o cambia settimana.")
+        }
+        items(visibleLessons, key = { "${it.id}:${it.subjectCode}:${it.start}" }) { lesson ->
+            val canSave = calendar.source?.kind == SearchKind.COURSE ||
+                calendar.source?.kind == SearchKind.TEACHER
+            LessonCard(lesson,
+                saved = savedSubjects.any { it.year == calendar.year && it.code == lesson.subjectCode },
+                onToggleSave = if (canSave) {{ onToggleSubject(lesson) }} else null)
         }
     }
 }

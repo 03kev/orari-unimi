@@ -61,9 +61,11 @@ import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.time.DayOfWeek
+import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 import androidx.core.content.ContextCompat
@@ -111,6 +113,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     var examOpenedFromCourseDetail by remember { mutableStateOf(false) }
     var examPlannerOpen by remember { mutableStateOf(false) }
     var examPlannerAppeal by remember { mutableStateOf<ExamAppeal?>(null) }
+    var examPlannerNote by remember { mutableStateOf("") }
     var examLoadId by remember { mutableIntStateOf(0) }
     var examQuery by remember { mutableStateOf("") }
     var years by remember { mutableStateOf<List<AcademicYear>>(emptyList()) }
@@ -172,6 +175,19 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         }
         preferences.registerOnSharedPreferenceChangeListener(listener)
         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    LaunchedEffect(store) {
+        while (true) {
+            val now = ZonedDateTime.now()
+            val nextDay = now.toLocalDate().plusDays(1).atStartOfDay(now.zone)
+            delay(Duration.between(now, nextDay).toMillis().coerceAtLeast(1_000L) + 1_000L)
+            savedExamAppeals = store.savedExamAppeals()
+            if (examPlannerAppeal?.date?.isBefore(LocalDate.now()) == true) {
+                examPlannerAppeal = null
+                examPlannerNote = ""
+            }
+        }
     }
 
     LaunchedEffect(openSavedRequest) {
@@ -528,7 +544,9 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         notificationSettingsOpen = false
         agendaOpen = false
         calendar = null
+        savedExamAppeals = store.savedExamAppeals()
         examPlannerAppeal = null
+        examPlannerNote = ""
         examPlannerOpen = true
         error = null
     }
@@ -664,10 +682,14 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         calendarRefreshing = false
         busy = false
         when {
-            examPlannerAppeal != null -> examPlannerAppeal = null
+            examPlannerAppeal != null -> {
+                examPlannerAppeal = null
+                examPlannerNote = ""
+            }
             examPlannerOpen -> {
                 examPlannerOpen = false
                 examPlannerAppeal = null
+                examPlannerNote = ""
             }
             agendaOpen -> {
                 agendaOpen = false
@@ -884,10 +906,22 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                     examPlannerOpen -> ExamPlannerScreen(
                         savedAppeals = savedExamAppeals,
                         selectedAppeal = examPlannerAppeal,
-                        onSelectAppeal = { examPlannerAppeal = it },
+                        savedNote = examPlannerNote,
+                        onSelectAppeal = {
+                            examPlannerAppeal = it
+                            examPlannerNote = store.examNote(it)
+                        },
+                        onSaveNote = { appeal, note ->
+                            store.setExamNote(appeal, note)
+                            examPlannerNote = note.trim()
+                            scope.launch {
+                                snackbar.showSnackbar(if (examPlannerNote.isBlank()) "Nota rimossa" else "Nota salvata")
+                            }
+                        },
                         onRemoveAppeal = { appeal ->
                             toggleSavedExamAppeal(appeal)
                             examPlannerAppeal = null
+                            examPlannerNote = ""
                         },
                         onAddToCalendar = ::addExamToCalendar
                     )

@@ -31,13 +31,20 @@ Il segnalibro presente su ogni appello lo salva esclusivamente sul dispositivo.
 La schermata mensile “I miei appelli” evidenzia con uno o più punti i giorni che
 contengono appelli salvati. Selezionando una data mostra gli appelli del giorno;
 selezionando un appello apre tutti i dettagli disponibili e consente di
-rimuoverlo dai salvati oppure aggiungerlo al calendario Android. Il calendario
-può essere sfogliato con le frecce o con uno scorrimento laterale.
+rimuoverlo dai salvati, aggiungerlo al calendario Android oppure associare una
+nota personale. Il calendario completa le settimane iniziali e finali con i
+giorni dei mesi adiacenti e può essere sfogliato con le frecce o con uno
+scorrimento laterale.
 Questa funzione serve come promemoria visivo e non effettua automaticamente
 l'iscrizione all'esame; l'iscrizione ufficiale resta su Unimia.
 Quando il corso viene aggiornato dalla rete, i dati degli appelli già salvati
 vengono riallineati usando `idAppello`, senza cancellare automaticamente un
 promemoria se l'appello non compare nella finestra richiesta.
+
+Appelli e note sono salvati soltanto nelle preferenze locali. All'avvio, quando
+si apre “I miei appelli” e allo scoccare della mezzanotte mentre l'app è attiva,
+gli appelli con una data precedente a quella corrente vengono eliminati insieme
+alla rispettiva nota.
 
 ## Cache e aggiornamento
 
