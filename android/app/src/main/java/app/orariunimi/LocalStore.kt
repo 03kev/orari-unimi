@@ -135,6 +135,58 @@ class LocalStore(context: Context) {
         favoriteCourses().filterNot { it.year == course.year && it.code == course.code }
     )
 
+    fun savedExamAppeals(): List<ExamAppeal> = try {
+        val values = JSONArray(preferences.getString("saved_exam_appeals", "[]"))
+        (0 until values.length()).mapNotNull { index ->
+            val value = values.optJSONObject(index) ?: return@mapNotNull null
+            runCatching {
+                ExamAppeal(
+                    id = value.getString("id"),
+                    courseCode = value.getString("courseCode"),
+                    courseName = value.optString("courseName"),
+                    subjectCode = value.optString("subjectCode"),
+                    subjectPortalCode = value.optString("subjectPortalCode"),
+                    subjectName = value.getString("subjectName"),
+                    date = java.time.LocalDate.parse(value.getString("date")),
+                    time = value.optString("time"),
+                    location = value.optString("location"),
+                    teacher = value.optString("teacher"),
+                    surnameFrom = value.optString("surnameFrom"),
+                    surnameTo = value.optString("surnameTo"),
+                    testType = value.optString("testType"),
+                    appealType = value.optString("appealType"),
+                    registrationOpen = value.optString("registrationOpen").takeIf { it.isNotBlank() }
+                        ?.let(java.time.LocalDate::parse),
+                    registrationClose = value.optString("registrationClose").takeIf { it.isNotBlank() }
+                        ?.let(java.time.LocalDate::parse)
+                )
+            }.getOrNull()
+        }.sortedWith(compareBy<ExamAppeal> { it.date }.thenBy { it.time }.thenBy { it.subjectName })
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    fun addSavedExamAppeal(appeal: ExamAppeal): Boolean {
+        val items = savedExamAppeals()
+        if (items.any { it.id == appeal.id && it.courseCode == appeal.courseCode }) return false
+        saveExamAppeals(items + appeal)
+        return true
+    }
+
+    fun removeSavedExamAppeal(appeal: ExamAppeal) = saveExamAppeals(
+        savedExamAppeals().filterNot { it.id == appeal.id && it.courseCode == appeal.courseCode }
+    )
+
+    fun refreshSavedExamAppeals(freshAppeals: List<ExamAppeal>): Boolean {
+        val current = savedExamAppeals()
+        if (current.isEmpty() || freshAppeals.isEmpty()) return false
+        val freshById = freshAppeals.associateBy { it.courseCode to it.id }
+        val updated = current.map { saved -> freshById[saved.courseCode to saved.id] ?: saved }
+        if (updated == current) return false
+        saveExamAppeals(updated)
+        return true
+    }
+
     private fun save(items: List<SavedSubject>) {
         val values = JSONArray()
         items.forEach { item ->
@@ -150,6 +202,30 @@ class LocalStore(context: Context) {
                 .put("name", item.name).put("degreeType", item.degreeType.name))
         }
         preferences.edit().putString("favorite_courses", values.toString()).commit()
+    }
+
+    private fun saveExamAppeals(items: List<ExamAppeal>) {
+        val values = JSONArray()
+        items.forEach { item ->
+            values.put(JSONObject()
+                .put("id", item.id)
+                .put("courseCode", item.courseCode)
+                .put("courseName", item.courseName)
+                .put("subjectCode", item.subjectCode)
+                .put("subjectPortalCode", item.subjectPortalCode)
+                .put("subjectName", item.subjectName)
+                .put("date", item.date.toString())
+                .put("time", item.time)
+                .put("location", item.location)
+                .put("teacher", item.teacher)
+                .put("surnameFrom", item.surnameFrom)
+                .put("surnameTo", item.surnameTo)
+                .put("testType", item.testType)
+                .put("appealType", item.appealType)
+                .put("registrationOpen", item.registrationOpen?.toString().orEmpty())
+                .put("registrationClose", item.registrationClose?.toString().orEmpty()))
+        }
+        preferences.edit().putString("saved_exam_appeals", values.toString()).commit()
     }
 
     private fun readNotifications(): List<AppNotificationEntry> = try {

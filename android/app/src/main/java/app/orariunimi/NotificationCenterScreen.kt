@@ -1,9 +1,13 @@
 package app.orariunimi
 
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -24,33 +28,45 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,10 +74,21 @@ fun NotificationCenterScreen(
     entries: List<AppNotificationEntry>,
     refreshing: Boolean,
     onRefresh: () -> Unit,
-    onDelete: (String) -> Unit,
+    onDelete: (AppNotificationEntry) -> Unit,
+    onClear: () -> Unit,
     onOpen: (AppNotificationEntry) -> Unit
 ) {
     val pullState = rememberPullToRefreshState()
+    var confirmClear by remember { mutableStateOf(false) }
+    if (confirmClear) AlertDialog(
+        onDismissRequest = { confirmClear = false },
+        title = { Text("Cancellare tutte le notifiche?") },
+        text = { Text("Lo storico delle notifiche verrà eliminato da questo dispositivo.") },
+        confirmButton = {
+            TextButton(onClick = { confirmClear = false; onClear() }) { Text("Cancella tutte") }
+        },
+        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Annulla") } }
+    )
     PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = onRefresh,
@@ -110,6 +137,16 @@ fun NotificationCenterScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
+                item(key = "clear-notifications") {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { confirmClear = true }) {
+                            Icon(Icons.Outlined.DeleteOutline, contentDescription = null,
+                                modifier = Modifier.size(19.dp))
+                            Spacer(Modifier.width(7.dp))
+                            Text("Cancella tutte")
+                        }
+                    }
+                }
                 itemsIndexed(entries, key = { _, entry -> entry.id }) { index, entry ->
                     val section = dayLabel(entry.timestampMillis)
                     val previousSection = entries.getOrNull(index - 1)?.let { dayLabel(it.timestampMillis) }
@@ -132,29 +169,73 @@ fun NotificationCenterScreen(
 @Composable
 private fun NotificationSwipeRow(
     entry: AppNotificationEntry,
-    onDelete: (String) -> Unit,
+    onDelete: (AppNotificationEntry) -> Unit,
     onOpen: (AppNotificationEntry) -> Unit
 ) {
-    val state = rememberSwipeToDismissBoxState()
-    LaunchedEffect(state.currentValue) {
-        if (state.currentValue == SwipeToDismissBoxValue.EndToStart) onDelete(entry.id)
-    }
-    SwipeToDismissBox(
-        state = state,
-        enableDismissFromStartToEnd = false,
-        backgroundContent = {
-            Box(
-                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer,
-                    RoundedCornerShape(20.dp)).padding(end = 22.dp),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Icon(Icons.Outlined.DeleteOutline, contentDescription = "Elimina notifica",
-                    tint = MaterialTheme.colorScheme.onErrorContainer)
-            }
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    var offsetX by remember(entry.id) { mutableFloatStateOf(0f) }
+    var settleJob by remember(entry.id) { mutableStateOf<Job?>(null) }
+    var thresholdReached by remember(entry.id) { mutableStateOf(false) }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val rowWidth = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+        val deleteThreshold = rowWidth * 0.38f
+        val swipeProgress = (-offsetX / deleteThreshold).coerceIn(0f, 1f)
+
+        Box(
+            Modifier.matchParentSize().background(
+                if (thresholdReached) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.errorContainer,
+                RoundedCornerShape(20.dp)).padding(end = 22.dp),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            Icon(Icons.Outlined.DeleteOutline, contentDescription = "Elimina notifica",
+                modifier = Modifier.graphicsLayer {
+                    alpha = 0.5f + swipeProgress * 0.5f
+                    scaleX = 0.78f + swipeProgress * 0.22f
+                    scaleY = scaleX
+                },
+                tint = if (thresholdReached) MaterialTheme.colorScheme.onError
+                    else MaterialTheme.colorScheme.onErrorContainer)
         }
-    ) {
         Card(
-            modifier = Modifier.fillMaxWidth().clickable { onOpen(entry) },
+            modifier = Modifier.fillMaxWidth()
+                .offset { IntOffset(offsetX.roundToInt(), 0) }
+                .pointerInput(entry.id, rowWidth) {
+                    detectHorizontalDragGestures(
+                        onDragStart = {
+                            settleJob?.cancel()
+                            thresholdReached = offsetX <= -deleteThreshold
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            offsetX = (offsetX + dragAmount).coerceIn(-rowWidth, 0f)
+                            val reachedNow = offsetX <= -deleteThreshold
+                            if (reachedNow && !thresholdReached) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                            thresholdReached = reachedNow
+                        },
+                        onDragCancel = {
+                            settleJob = scope.launch {
+                                animate(offsetX, 0f, animationSpec = spring()) { value, _ -> offsetX = value }
+                                thresholdReached = false
+                            }
+                        },
+                        onDragEnd = {
+                            settleJob = scope.launch {
+                                if (thresholdReached) {
+                                    animate(offsetX, -rowWidth, animationSpec = spring()) { value, _ -> offsetX = value }
+                                    onDelete(entry)
+                                } else {
+                                    animate(offsetX, 0f, animationSpec = spring()) { value, _ -> offsetX = value }
+                                    thresholdReached = false
+                                }
+                            }
+                        }
+                    )
+                }
+                .clickable { onOpen(entry) },
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
         ) {

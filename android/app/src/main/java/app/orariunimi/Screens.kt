@@ -1075,10 +1075,21 @@ fun CalendarScreen(
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 9.dp)) {
             WeekHeader(week, onMoveWeek, onOpenMonth = { showMonth = true })
             Spacer(Modifier.height(14.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(days) { day ->
-                    DayTile(day, selected = day == selectedDay,
-                        count = calendar.lessons.count { it.date == day }, onClick = { onSelectDay(day) })
+            if (weekend) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(days) { day ->
+                        DayTile(day, selected = day == selectedDay,
+                            count = calendar.lessons.count { it.date == day },
+                            modifier = Modifier.width(68.dp), onClick = { onSelectDay(day) })
+                    }
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    days.forEach { day ->
+                        DayTile(day, selected = day == selectedDay,
+                            count = calendar.lessons.count { it.date == day },
+                            modifier = Modifier.weight(1f), onClick = { onSelectDay(day) })
+                    }
                 }
             }
             Spacer(Modifier.height(6.dp))
@@ -1288,10 +1299,12 @@ fun monthDates(month: YearMonth): List<LocalDate?> {
 }
 
 @Composable
-private fun DayTile(day: LocalDate, selected: Boolean, count: Int, onClick: () -> Unit) {
+private fun DayTile(
+    day: LocalDate, selected: Boolean, count: Int, modifier: Modifier = Modifier, onClick: () -> Unit
+) {
     Surface(onClick = onClick, shape = RoundedCornerShape(18.dp),
         color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.width(68.dp).height(86.dp)) {
+        modifier = modifier.height(86.dp)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text(day.dayOfWeek.getDisplayName(TextStyle.SHORT, italian).replaceFirstChar { it.titlecase(italian) },
                 style = MaterialTheme.typography.labelSmall,

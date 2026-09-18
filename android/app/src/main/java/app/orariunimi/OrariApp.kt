@@ -36,6 +36,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -56,6 +57,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -102,6 +106,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     var examCourse by remember { mutableStateOf<SearchItem?>(null) }
     var examWindow by remember { mutableStateOf(ExamWindow.NEXT_30_DAYS) }
     var examData by remember { mutableStateOf<ExamViewData?>(null) }
+    var examError by remember { mutableStateOf<String?>(null) }
     var examRefreshing by remember { mutableStateOf(false) }
     var examOpenedFromCourseDetail by remember { mutableStateOf(false) }
     var examLoadId by remember { mutableIntStateOf(0) }
@@ -123,6 +128,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     var savedSchedule by remember { mutableStateOf<ScheduleSnapshot?>(null) }
     var savedScheduleLoading by remember { mutableStateOf(false) }
     var favorites by remember { mutableStateOf(store.favoriteCourses()) }
+    var savedExamAppeals by remember { mutableStateOf(store.savedExamAppeals()) }
     var weekend by remember { mutableStateOf(store.showWeekend) }
     var notificationPreferences by remember { mutableStateOf(store.notificationPreferences) }
     var notificationEntries by remember { mutableStateOf(store.notifications()) }
@@ -176,6 +182,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
             courseDetail = null
             examCourse = null
             examData = null
+            examError = null
             examLoadId++
             examRefreshing = false
             tab = 1
@@ -191,6 +198,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
             courseDetail = null
             examCourse = null
             examData = null
+            examError = null
             examLoadId++
             examRefreshing = false
             notificationEntries = store.notifications()
@@ -409,6 +417,15 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         scope.launch { snackbar.showSnackbar(if (isFavorite) "Rimosso dai preferiti" else "Corso salvato nei preferiti") }
     }
 
+    fun toggleSavedExamAppeal(appeal: ExamAppeal) {
+        val isSaved = savedExamAppeals.any { it.id == appeal.id && it.courseCode == appeal.courseCode }
+        if (isSaved) store.removeSavedExamAppeal(appeal) else store.addSavedExamAppeal(appeal)
+        savedExamAppeals = store.savedExamAppeals()
+        scope.launch {
+            snackbar.showSnackbar(if (isSaved) "Appello rimosso dai promemoria" else "Appello salvato nei promemoria")
+        }
+    }
+
     fun showExams(
         course: SearchItem,
         selectedWindow: ExamWindow = ExamWindow.NEXT_30_DAYS,
@@ -421,6 +438,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         calendar = null
         examCourse = course
         examWindow = selectedWindow
+        examError = null
         examOpenedFromCourseDetail = returnToCourseDetail
         examLoadId++
         val loadId = examLoadId
@@ -436,37 +454,26 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                 examData = ExamViewData(course.code, selectedWindow, cached, offline = false)
             }
             try {
-                val fresh = withContext(Dispatchers.IO) { examApi.refreshAppeals(course.code, selectedWindow) }
+                val (fresh, savedChanged) = withContext(Dispatchers.IO) {
+                    val snapshot = examApi.refreshAppeals(course.code, selectedWindow)
+                    snapshot to store.refreshSavedExamAppeals(snapshot.appeals)
+                }
                 if (loadId == examLoadId) {
                     examData = ExamViewData(course.code, selectedWindow, fresh, offline = false)
+                    if (savedChanged) savedExamAppeals = store.savedExamAppeals()
+                    examError = null
                 }
             } catch (cause: Exception) {
                 if (loadId == examLoadId) {
+                    examError = examFailureMessage(cause)
                     if (cached != null) {
                         examData = ExamViewData(course.code, selectedWindow, cached, offline = true)
-                    } else {
-                        error = cause.message ?: "Impossibile recuperare gli appelli."
                     }
                 }
             } finally {
                 if (loadId == examLoadId) examRefreshing = false
             }
         }
-    }
-
-    fun changeExamCourse() {
-        val openedFromCourse = examOpenedFromCourseDetail
-        examLoadId++
-        examRefreshing = false
-        examCourse = null
-        examData = null
-        examOpenedFromCourseDetail = false
-        examQuery = ""
-        if (openedFromCourse) {
-            courseDetail = null
-            tab = 2
-        }
-        error = null
     }
 
     fun addExamToCalendar(appeal: ExamAppeal) {
@@ -642,6 +649,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                 examRefreshing = false
                 examCourse = null
                 examData = null
+                examError = null
                 examOpenedFromCourseDetail = false
             }
             calendar != null -> calendar = null
@@ -788,8 +796,23 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                         entries = notificationEntries,
                         refreshing = notificationRefreshing,
                         onRefresh = ::refreshNotifications,
-                        onDelete = { id ->
-                            store.deleteNotification(id)
+                        onDelete = { entry ->
+                            store.deleteNotification(entry.id)
+                            notificationEntries = store.notifications()
+                            scope.launch {
+                                val result = snackbar.showSnackbar(
+                                    message = "Notifica eliminata",
+                                    actionLabel = "Annulla",
+                                    withDismissAction = true
+                                )
+                                if (result == SnackbarResult.ActionPerformed && store.addNotification(entry)) {
+                                    notificationEntries = store.notifications()
+                                }
+                            }
+                        },
+                        onClear = {
+                            store.clearNotifications()
+                            NotificationPublisher.cancelAll(context)
                             notificationEntries = store.notifications()
                         },
                         onOpen = { entry ->
@@ -841,14 +864,16 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                             appeals = shown?.snapshot?.appeals,
                             updatedAtMillis = shown?.snapshot?.updatedAtMillis,
                             offline = shown?.offline == true,
+                            errorMessage = examError,
                             loadingCourses = loadingEntries,
                             refreshing = examRefreshing,
+                            savedAppeals = savedExamAppeals,
                             onQuery = { examQuery = it },
                             onSelectCourse = { showExams(it) },
-                            onClearCourse = ::changeExamCourse,
                             onWindow = { showExams(selected, it, examOpenedFromCourseDetail) },
                             onRefresh = { showExams(selected, examWindow, examOpenedFromCourseDetail) },
                             onRetryCourses = { entries = entries - SearchKind.COURSE; entriesRetry++ },
+                            onToggleSavedAppeal = ::toggleSavedExamAppeal,
                             onAddToCalendar = ::addExamToCalendar
                         )
                     }
@@ -930,14 +955,16 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                         appeals = null,
                         updatedAtMillis = null,
                         offline = false,
+                        errorMessage = null,
                         loadingCourses = loadingEntries,
                         refreshing = false,
+                        savedAppeals = savedExamAppeals,
                         onQuery = { examQuery = it },
                         onSelectCourse = { showExams(it) },
-                        onClearCourse = ::changeExamCourse,
                         onWindow = {},
                         onRefresh = {},
                         onRetryCourses = { entries = entries - SearchKind.COURSE; entriesRetry++ },
+                        onToggleSavedAppeal = ::toggleSavedExamAppeal,
                         onAddToCalendar = ::addExamToCalendar
                     )
                     else -> FavoriteCoursesScreen(
@@ -971,3 +998,20 @@ fun adjacentCalendarDay(day: LocalDate, direction: Long, weekend: Boolean): Loca
 fun preferredDay(lessons: List<Lesson>, week: LocalDate, weekend: Boolean): LocalDate =
     lessons.firstOrNull { !it.date.isBefore(week) && it.date.isBefore(week.plusDays(if (weekend) 7 else 5)) }?.date
         ?: week
+
+private fun examFailureMessage(cause: Throwable): String {
+    val failure = generateSequence(cause) { it.cause }.firstOrNull {
+        it is UnknownHostException || it is ConnectException || it is SocketTimeoutException ||
+            it is org.json.JSONException
+    } ?: cause
+    return when (failure) {
+        is UnknownHostException, is ConnectException ->
+            "Nessuna connessione disponibile. Controlla la rete e riprova."
+        is SocketTimeoutException ->
+            "Il servizio UNIMI sta impiegando troppo tempo a rispondere. Riprova tra poco."
+        is org.json.JSONException ->
+            "Il servizio UNIMI ha restituito dati non leggibili. Riprova più tardi."
+        else -> failure.message?.takeIf { it.isNotBlank() }?.let { "$it Riprova tra poco." }
+            ?: "Il servizio UNIMI non è al momento raggiungibile. Riprova tra poco."
+    }
+}

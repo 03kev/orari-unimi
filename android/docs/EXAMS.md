@@ -25,6 +25,18 @@ durata dell'esame: l'inserimento nel calendario propone l'ora iniziale e lascia
 all'app calendario la gestione della durata. Se manca anche l'ora, l'evento è
 proposto come evento giornaliero.
 
+## I miei appelli
+
+Il segnalibro presente su ogni appello lo salva esclusivamente sul dispositivo.
+La vista mensile “I miei appelli” evidenzia con un punto i giorni che contengono
+appelli salvati e mostra, per la data selezionata, ora, insegnamento, corso e aula.
+Il calendario può essere sfogliato con le frecce o con uno scorrimento laterale.
+Questa funzione serve come promemoria visivo e non effettua automaticamente
+l'iscrizione all'esame; l'iscrizione ufficiale resta su Unimia.
+Quando il corso viene aggiornato dalla rete, i dati degli appelli già salvati
+vengono riallineati usando `idAppello`, senza cancellare automaticamente un
+promemoria se l'appello non compare nella finestra richiesta.
+
 ## Cache e aggiornamento
 
 Aprendo un corso viene mostrata subito una risposta recente presente nella cache
