@@ -29,7 +29,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        AppVisibility.enterForeground()
+    }
+
+    override fun onResume() {
+        super.onResume()
         NotificationScheduler.configure(applicationContext, runNow = true)
+    }
+
+    override fun onStop() {
+        AppVisibility.enterBackground()
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {

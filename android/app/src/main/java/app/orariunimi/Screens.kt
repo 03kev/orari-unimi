@@ -22,6 +22,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -713,13 +714,21 @@ private fun AgendaRangeSelector(range: AgendaRange, onRange: (AgendaRange) -> Un
 
 @Composable
 private fun AgendaRangeOption(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
     val contentColor by animateColorAsState(
         targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
             else MaterialTheme.colorScheme.onSurfaceVariant,
         animationSpec = tween(180),
         label = "agenda-range-label"
     )
-    Box(modifier.height(42.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(
+        modifier.height(42.dp).clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = onClick
+        ),
+        contentAlignment = Alignment.Center
+    ) {
         Text(label, style = MaterialTheme.typography.labelLarge, color = contentColor,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
     }

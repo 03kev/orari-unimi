@@ -26,15 +26,21 @@ elementi ed è salvato solo sul dispositivo.
 
 ## Frequenza e limiti Android
 
-Le variazioni e i promemoria vengono pianificati con WorkManager ogni 15 minuti,
-il minimo consentito per il lavoro periodico. È la frequenza richiesta
-dall'app, non una garanzia di esecuzione esatta: Android può rinviare un
-controllo per batteria, modalità Doze, assenza di rete o limiti imposti dal
-produttore. Gli aggiornamenti dell'app vengono controllati ogni 12 ore. Quando
-si attiva una categoria viene richiesto anche un primo controllo appena la rete
-è disponibile. Ogni nuova apertura dell'app richiede inoltre un controllo
-immediato di tutte le categorie abilitate; WorkManager accorpa e sostituisce le
-richieste immediate omonime per evitare controlli simultanei duplicati.
+Tutte le categorie, compresi gli aggiornamenti dell'app, vengono pianificate con
+WorkManager ogni 15 minuti, il minimo consentito per il lavoro periodico. È la
+frequenza richiesta dall'app, non una garanzia di esecuzione esatta: Android può
+rinviare un controllo per batteria, modalità Doze, assenza di rete o limiti
+imposti dal produttore. Quando si attiva una categoria viene richiesto anche un
+primo controllo appena la rete è disponibile. Ogni apertura o ritorno in primo
+piano dell'app richiede inoltre un controllo immediato di tutte le categorie
+abilitate; WorkManager accorpa e sostituisce le richieste immediate omonime per
+evitare controlli simultanei duplicati.
+
+I controlli avviati mentre si usa l'app, inclusi quelli richiesti trascinando il
+centro notifiche verso il basso, aggiungono gli avvisi soltanto al centro interno.
+Le notifiche di sistema vengono pubblicate esclusivamente dai controlli periodici
+eseguiti mentre l'app è chiusa o in background. Un avviso già registrato dentro
+l'app non viene ripubblicato nel sistema per la stessa variazione o versione.
 
 I promemoria dipendono quindi dall'esecuzione concessa dal sistema e non devono
 essere considerati una sveglia esatta. Su Android 13 o successivo serve anche il

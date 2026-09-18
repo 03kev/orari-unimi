@@ -56,6 +56,17 @@ class NotificationEngineTest {
         assertTrue(result.lessons.isEmpty())
     }
 
+    @Test fun systemNotificationsAreOnlyPostedByBackgroundChecksWhileAppIsNotForeground() {
+        assertTrue(NotificationDeliveryPolicy.shouldPostSystem(
+            allowSystemNotification = true, appInForeground = false))
+        assertEquals(false, NotificationDeliveryPolicy.shouldPostSystem(
+            allowSystemNotification = true, appInForeground = true))
+        assertEquals(false, NotificationDeliveryPolicy.shouldPostSystem(
+            allowSystemNotification = false, appInForeground = false))
+        assertEquals(false, NotificationDeliveryPolicy.shouldPostSystem(
+            allowSystemNotification = false, appInForeground = true))
+    }
+
     private fun lesson(
         id: String,
         start: String = "09:00",

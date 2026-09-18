@@ -24,8 +24,10 @@ Le notifiche sono interamente facoltative e configurabili nelle Preferenze.
 Possono segnalare variazioni importanti degli orari, ricordare in modo
 silenzioso la prossima lezione e avvisare silenziosamente delle nuove versioni.
 La campanella nella schermata principale apre lo storico locale, dal quale ogni
-voce può essere eliminata con uno swipe. Dettagli e protezioni adottate sono
-descritti in [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
+voce può essere eliminata con uno swipe. I controlli vengono richiesti ogni 15
+minuti: quando l'app è aperta aggiornano soltanto lo storico interno, mentre in
+background possono mostrare una notifica Android. Dettagli e protezioni adottate
+sono descritti in [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
 Se il record di un corso non elenca ancora gli insegnamenti, l'app cerca quelli
 associati al suo codice nell'elenco generale pubblicato dal portale per lo
 stesso anno accademico.

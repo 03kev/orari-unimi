@@ -18,6 +18,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import java.io.File
 import java.time.Duration
 import java.time.LocalDate
@@ -32,6 +33,7 @@ object NotificationScheduler {
     private const val SCHEDULE_NOW = "schedule-notifications-now"
     private const val UPDATES_PERIODIC = "update-notifications-periodic"
     private const val UPDATES_NOW = "update-notifications-now"
+    internal const val INTERNAL_ONLY = "internal-only"
     private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
     fun configure(context: Context, runNow: Boolean = false) {
@@ -58,7 +60,7 @@ object NotificationScheduler {
         }
 
         if (preferences.appUpdates) {
-            val periodic = PeriodicWorkRequestBuilder<AppUpdateNotificationWorker>(12, TimeUnit.HOURS)
+            val periodic = PeriodicWorkRequestBuilder<AppUpdateNotificationWorker>(15, TimeUnit.MINUTES)
                 .setConstraints(network).build()
             work.enqueueUniquePeriodicWork(UPDATES_PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, periodic)
         } else {
@@ -101,12 +103,14 @@ object NotificationScheduler {
         val ids = mutableListOf<UUID>()
         if (preferences.importantChanges || preferences.lessonReminders) {
             val request = OneTimeWorkRequestBuilder<ScheduleNotificationWorker>()
+                .setInputData(workDataOf(INTERNAL_ONLY to true))
                 .setConstraints(network).build()
             work.enqueueUniqueWork(SCHEDULE_NOW, ExistingWorkPolicy.REPLACE, request)
             ids += request.id
         }
         if (preferences.appUpdates) {
             val request = OneTimeWorkRequestBuilder<AppUpdateNotificationWorker>()
+                .setInputData(workDataOf(INTERNAL_ONLY to true))
                 .setConstraints(network).build()
             work.enqueueUniqueWork(UPDATES_NOW, ExistingWorkPolicy.REPLACE, request)
             ids += request.id
@@ -117,6 +121,7 @@ object NotificationScheduler {
 
 class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters) : Worker(context, parameters) {
     override fun doWork(): Result {
+        val allowSystemNotification = !inputData.getBoolean(NotificationScheduler.INTERNAL_ONLY, false)
         val store = LocalStore(applicationContext)
         val preferences = store.notificationPreferences
         if (!preferences.enabled || !preferences.importantChanges && !preferences.lessonReminders) return Result.success()
@@ -135,8 +140,10 @@ class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters)
         }
 
         val now = LocalDateTime.now()
-        if (preferences.importantChanges) processChanges(store, baselineStore, snapshot.lessons, now.toLocalDate())
-        if (preferences.lessonReminders) processReminder(store, snapshot.lessons, now, preferences.reminderMinutes)
+        if (preferences.importantChanges) processChanges(
+            store, baselineStore, snapshot.lessons, now.toLocalDate(), allowSystemNotification)
+        if (preferences.lessonReminders) processReminder(
+            store, snapshot.lessons, now, preferences.reminderMinutes, allowSystemNotification)
         return Result.success()
     }
 
@@ -144,7 +151,8 @@ class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters)
         store: LocalStore,
         baselineStore: NotificationBaselineStore,
         current: List<Lesson>,
-        today: LocalDate
+        today: LocalDate,
+        allowSystemNotification: Boolean
     ) {
         val future = current.filter { !it.date.isBefore(today) }
         val baseline = baselineStore.read()
@@ -174,9 +182,10 @@ class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters)
                 draft.message, System.currentTimeMillis(), draft.targetDate)
         }.filter { store.addNotification(it) }
         when {
-            added.size == 1 -> NotificationPublisher.post(applicationContext, added.single())
+            added.size == 1 -> NotificationPublisher.post(
+                applicationContext, added.single(), allowSystemNotification)
             added.size > 1 -> NotificationPublisher.postSummary(applicationContext, added.size,
-                "${added.size} variazioni rilevate nei tuoi orari")
+                "${added.size} variazioni rilevate nei tuoi orari", allowSystemNotification)
         }
     }
 
@@ -184,7 +193,8 @@ class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters)
         store: LocalStore,
         lessons: List<Lesson>,
         now: LocalDateTime,
-        leadMinutes: Int
+        leadMinutes: Int,
+        allowSystemNotification: Boolean
     ) {
         val next = lessons.asSequence().filter { !it.cancelled }.mapNotNull { lesson ->
             val start = runCatching {
@@ -206,12 +216,15 @@ class ScheduleNotificationWorker(context: Context, parameters: WorkerParameters)
             targetDate = lesson.date
         )
         store.lastLessonReminderKey = key
-        if (store.addNotification(entry)) NotificationPublisher.post(applicationContext, entry)
+        if (store.addNotification(entry)) {
+            NotificationPublisher.post(applicationContext, entry, allowSystemNotification)
+        }
     }
 }
 
 class AppUpdateNotificationWorker(context: Context, parameters: WorkerParameters) : Worker(context, parameters) {
     override fun doWork(): Result {
+        val allowSystemNotification = !inputData.getBoolean(NotificationScheduler.INTERNAL_ONLY, false)
         val store = LocalStore(applicationContext)
         val preferences = store.notificationPreferences
         if (!preferences.enabled || !preferences.appUpdates) return Result.success()
@@ -224,7 +237,9 @@ class AppUpdateNotificationWorker(context: Context, parameters: WorkerParameters
             timestampMillis = System.currentTimeMillis()
         )
         store.lastUpdateNotificationVersion = release.version
-        if (store.addNotification(entry)) NotificationPublisher.post(applicationContext, entry)
+        if (store.addNotification(entry)) {
+            NotificationPublisher.post(applicationContext, entry, allowSystemNotification)
+        }
         return Result.success()
     }
 }
@@ -245,8 +260,9 @@ object NotificationPublisher {
         ))
     }
 
-    fun post(context: Context, entry: AppNotificationEntry) {
-        if (!canPost(context)) return
+    fun post(context: Context, entry: AppNotificationEntry, allowSystemNotification: Boolean = true) {
+        if (!NotificationDeliveryPolicy.shouldPostSystem(
+                allowSystemNotification, AppVisibility.isForeground) || !canPost(context)) return
         createChannels(context)
         val notification = Notification.Builder(context, channel(entry.type))
             .setSmallIcon(R.drawable.ic_notification_calendar)
@@ -261,8 +277,14 @@ object NotificationPublisher {
             .notify(TAG, entry.id.hashCode(), notification)
     }
 
-    fun postSummary(context: Context, count: Int, message: String) {
-        if (!canPost(context)) return
+    fun postSummary(
+        context: Context,
+        count: Int,
+        message: String,
+        allowSystemNotification: Boolean = true
+    ) {
+        if (!NotificationDeliveryPolicy.shouldPostSystem(
+                allowSystemNotification, AppVisibility.isForeground) || !canPost(context)) return
         createChannels(context)
         val notification = Notification.Builder(context, IMPORTANT_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification_calendar)
@@ -302,4 +324,23 @@ object NotificationPublisher {
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
+}
+
+internal object NotificationDeliveryPolicy {
+    fun shouldPostSystem(allowSystemNotification: Boolean, appInForeground: Boolean): Boolean =
+        allowSystemNotification && !appInForeground
+}
+
+object AppVisibility {
+    @Volatile
+    var isForeground: Boolean = false
+        private set
+
+    fun enterForeground() {
+        isForeground = true
+    }
+
+    fun enterBackground() {
+        isForeground = false
+    }
 }
