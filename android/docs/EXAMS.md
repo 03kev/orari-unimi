@@ -28,9 +28,11 @@ proposto come evento giornaliero.
 ## I miei appelli
 
 Il segnalibro presente su ogni appello lo salva esclusivamente sul dispositivo.
-La vista mensile “I miei appelli” evidenzia con un punto i giorni che contengono
-appelli salvati e mostra, per la data selezionata, ora, insegnamento, corso e aula.
-Il calendario può essere sfogliato con le frecce o con uno scorrimento laterale.
+La schermata mensile “I miei appelli” evidenzia con uno o più punti i giorni che
+contengono appelli salvati. Selezionando una data mostra gli appelli del giorno;
+selezionando un appello apre tutti i dettagli disponibili e consente di
+rimuoverlo dai salvati oppure aggiungerlo al calendario Android. Il calendario
+può essere sfogliato con le frecce o con uno scorrimento laterale.
 Questa funzione serve come promemoria visivo e non effettua automaticamente
 l'iscrizione all'esame; l'iscrizione ufficiale resta su Unimia.
 Quando il corso viene aggiornato dalla rete, i dati degli appelli già salvati

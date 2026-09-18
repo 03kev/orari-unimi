@@ -1076,11 +1076,14 @@ fun CalendarScreen(
             WeekHeader(week, onMoveWeek, onOpenMonth = { showMonth = true })
             Spacer(Modifier.height(14.dp))
             if (weekend) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(days) { day ->
-                        DayTile(day, selected = day == selectedDay,
-                            count = calendar.lessons.count { it.date == day },
-                            modifier = Modifier.width(68.dp), onClick = { onSelectDay(day) })
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val weekdayWidth = (maxWidth - 32.dp) / 5
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(days) { day ->
+                            DayTile(day, selected = day == selectedDay,
+                                count = calendar.lessons.count { it.date == day },
+                                modifier = Modifier.width(weekdayWidth), onClick = { onSelectDay(day) })
+                        }
                     }
                 }
             } else {

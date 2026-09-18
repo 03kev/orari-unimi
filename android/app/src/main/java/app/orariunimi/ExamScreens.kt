@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -30,6 +29,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -43,11 +43,10 @@ import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -67,7 +66,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -100,17 +98,16 @@ fun ExamsScreen(
     onWindow: (ExamWindow) -> Unit,
     onRefresh: () -> Unit,
     onRetryCourses: () -> Unit,
+    onOpenPlanner: () -> Unit,
     onToggleSavedAppeal: (ExamAppeal) -> Unit,
     onAddToCalendar: (ExamAppeal) -> Unit
 ) {
-    var showPlanner by remember { mutableStateOf(false) }
-    if (showPlanner) ExamPlannerDialog(savedAppeals, onDismiss = { showPlanner = false })
     if (selectedCourse == null) {
         ExamCoursePicker(courses, favorites, query, results, loadingCourses, onQuery,
-            onSelectCourse, onRetryCourses, onOpenPlanner = { showPlanner = true })
+            onSelectCourse, onRetryCourses, onOpenPlanner)
     } else {
         ExamAppealsList(selectedCourse, window, appeals, updatedAtMillis, offline, errorMessage, refreshing,
-            savedAppeals, onWindow, onRefresh, onOpenPlanner = { showPlanner = true },
+            savedAppeals, onWindow, onRefresh, onOpenPlanner,
             onToggleSavedAppeal, onAddToCalendar)
     }
 }
@@ -467,7 +464,17 @@ private fun ExamFreshness(
 }
 
 @Composable
-private fun ExamPlannerDialog(savedAppeals: List<ExamAppeal>, onDismiss: () -> Unit) {
+fun ExamPlannerScreen(
+    savedAppeals: List<ExamAppeal>,
+    selectedAppeal: ExamAppeal?,
+    onSelectAppeal: (ExamAppeal) -> Unit,
+    onRemoveAppeal: (ExamAppeal) -> Unit,
+    onAddToCalendar: (ExamAppeal) -> Unit
+) {
+    if (selectedAppeal != null) {
+        ExamAppealDetails(selectedAppeal, onRemoveAppeal, onAddToCalendar)
+        return
+    }
     val today = LocalDate.now()
     var month by remember { mutableStateOf(YearMonth.from(today)) }
     var selectedDay by remember { mutableStateOf(today) }
@@ -488,26 +495,35 @@ private fun ExamPlannerDialog(savedAppeals: List<ExamAppeal>, onDismiss: () -> U
         selectedDay = month.atDay(1)
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text("I miei appelli", style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold)
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { moveMonth(-1) }) {
-                        Icon(Icons.Outlined.ChevronLeft, contentDescription = "Mese precedente")
-                    }
-                    Text(monthTitle, Modifier.weight(1f), textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    IconButton(onClick = { moveMonth(1) }) {
-                        Icon(Icons.Outlined.ChevronRight, contentDescription = "Mese successivo")
-                    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 30.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(monthTitle, style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold)
+                    Text("${savedAppeals.size} ${if (savedAppeals.size == 1) "appello salvato" else "appelli salvati"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(onClick = {
+                    month = YearMonth.from(today)
+                    selectedDay = today
+                }) { Text("Oggi") }
+                IconButton(onClick = { moveMonth(-1) }) {
+                    Icon(Icons.Outlined.ChevronLeft, contentDescription = "Mese precedente")
+                }
+                IconButton(onClick = { moveMonth(1) }) {
+                    Icon(Icons.Outlined.ChevronRight, contentDescription = "Mese successivo")
                 }
             }
-        },
-        text = {
-            Column(Modifier.fillMaxWidth().pointerInput(month) {
+        }
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth().pointerInput(month) {
                 detectHorizontalDragGestures(
                     onDragStart = { drag = 0f },
                     onHorizontalDrag = { change, amount -> drag += amount; change.consume() },
@@ -520,112 +536,199 @@ private fun ExamPlannerDialog(savedAppeals: List<ExamAppeal>, onDismiss: () -> U
                         drag = 0f
                     }
                 )
-            }) {
-                Row(Modifier.fillMaxWidth()) {
-                    listOf("L", "M", "M", "G", "V", "S", "D").forEach { label ->
-                        Box(Modifier.weight(1f).height(30.dp), contentAlignment = Alignment.Center) {
-                            Text(label, style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-                monthDates(month).chunked(7).forEach { row ->
+                },
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow
+            ) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 14.dp)) {
                     Row(Modifier.fillMaxWidth()) {
-                        row.forEach { day ->
-                            ExamPlannerDay(
-                                day = day,
-                                selected = day == selectedDay,
-                                count = appealsByDay[day].orEmpty().size,
-                                onSelect = { selectedDay = it }
-                            )
+                        listOf("L", "M", "M", "G", "V", "S", "D").forEachIndexed { index, label ->
+                            Box(Modifier.weight(1f).height(32.dp), contentAlignment = Alignment.Center) {
+                                Text(label, style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (index >= 5) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
-                }
-                HorizontalDivider(Modifier.padding(top = 10.dp, bottom = 10.dp))
-                Text(formatExamDate(selectedDay), style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold)
-                if (selectedAppeals.isEmpty()) {
-                    Text(
-                        if (savedAppeals.isEmpty())
-                            "Salva un appello con il segnalibro per ritrovarlo qui."
-                        else "Nessun appello salvato in questa giornata.",
-                        Modifier.padding(top = 8.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 190.dp).padding(top = 5.dp),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        items(selectedAppeals, key = { "planner:${it.courseCode}:${it.id}" }) { appeal ->
-                            ExamPlannerAppeal(appeal)
+                    monthDates(month).chunked(7).forEach { row ->
+                        Row(Modifier.fillMaxWidth()) {
+                            row.forEach { day ->
+                                ExamPlannerDay(
+                                    day = day,
+                                    selected = day == selectedDay,
+                                    today = day == today,
+                                    count = appealsByDay[day].orEmpty().size,
+                                    onSelect = { selectedDay = it }
+                                )
+                            }
                         }
                     }
                 }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = {
-                month = YearMonth.from(today)
-                selectedDay = today
-            }) { Text("Oggi") }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Chiudi") } }
-    )
+        }
+        item {
+            Column {
+                Text(formatExamDate(selectedDay), style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold)
+                Text(if (selectedAppeals.isEmpty()) "Nessun appello" else
+                    "${selectedAppeals.size} ${if (selectedAppeals.size == 1) "appello" else "appelli"}",
+                    Modifier.padding(top = 2.dp), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (selectedAppeals.isEmpty()) item {
+            ExamEmptyPanel(
+                if (savedAppeals.isEmpty()) "Nessun appello salvato" else "Giornata libera",
+                if (savedAppeals.isEmpty()) "Salva un appello con il segnalibro per ritrovarlo nel calendario."
+                else "Non hai appelli salvati per questa data."
+            )
+        } else items(selectedAppeals, key = { "planner:${it.courseCode}:${it.id}" }) { appeal ->
+            ExamPlannerAppeal(appeal, onClick = { onSelectAppeal(appeal) })
+        }
+    }
 }
 
 @Composable
 private fun RowScope.ExamPlannerDay(
     day: LocalDate?,
     selected: Boolean,
+    today: Boolean,
     count: Int,
     onSelect: (LocalDate) -> Unit
 ) {
     if (day == null) {
-        Spacer(Modifier.weight(1f).height(42.dp))
+        Spacer(Modifier.weight(1f).height(48.dp))
         return
     }
     Surface(
         onClick = { onSelect(day) },
         shape = CircleShape,
-        color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-        modifier = Modifier.weight(1f).height(42.dp)
+        color = when {
+            selected -> MaterialTheme.colorScheme.primary
+            today -> MaterialTheme.colorScheme.primaryContainer
+            else -> Color.Transparent
+        },
+        modifier = Modifier.weight(1f).height(48.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center) {
             Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                fontWeight = if (selected || today) FontWeight.Bold else FontWeight.Normal,
                 color = if (selected) MaterialTheme.colorScheme.onPrimary
                     else MaterialTheme.colorScheme.onSurface)
-            Box(Modifier.size(4.dp).background(if (count > 0) {
-                if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
-            } else Color.Transparent, CircleShape))
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                repeat(count.coerceAtMost(3)) {
+                    Box(Modifier.size(4.dp).background(
+                        if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary,
+                        CircleShape))
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun ExamPlannerAppeal(appeal: ExamAppeal) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh
+private fun ExamPlannerAppeal(appeal: ExamAppeal, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
-        Row(Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
+        Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Text(appeal.time.ifBlank { "--:--" }, style = MaterialTheme.typography.labelLarge,
+            Text(appeal.time.ifBlank { "--:--" }, style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(appeal.subjectName, style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(listOf(appeal.courseCode, appeal.location).filter { it.isNotBlank() }.joinToString(" · "),
+                    fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(listOf(appeal.courseName.ifBlank { appeal.courseCode }, appeal.location)
+                    .filter { it.isNotBlank() }.joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = "Apri dettagli",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+}
+
+@Composable
+private fun ExamAppealDetails(
+    appeal: ExamAppeal,
+    onRemove: (ExamAppeal) -> Unit,
+    onAddToCalendar: (ExamAppeal) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 30.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Text(appeal.subjectName, style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold)
+            Text(listOf(appeal.subjectCode, appeal.subjectPortalCode).filter { it.isNotBlank() }.joinToString(" · "),
+                Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow
+            ) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    ExamDetailField("Data", formatExamDate(appeal.date))
+                    ExamDetailField("Ora", appeal.time.ifBlank { "Da definire" })
+                    ExamDetailField("Corso di laurea",
+                        listOf(appeal.courseName, appeal.courseCode).filter { it.isNotBlank() }.joinToString(" · "))
+                    if (appeal.location.isNotBlank()) ExamDetailField("Luogo", appeal.location)
+                    if (appeal.teacher.isNotBlank()) ExamDetailField("Docente", appeal.teacher)
+                    if (appeal.testType.isNotBlank()) ExamDetailField("Prova", appeal.testType)
+                    if (appeal.appealType.isNotBlank()) ExamDetailField("Tipo di appello", appeal.appealType)
+                    val range = listOf(appeal.surnameFrom, appeal.surnameTo)
+                        .filter { it.isNotBlank() }.joinToString("–")
+                    if (range.isNotBlank()) ExamDetailField("Fascia alfabetica", range)
+                    val registration = listOfNotNull(
+                        appeal.registrationOpen?.let { "dal ${formatShortDate(it)}" },
+                        appeal.registrationClose?.let { "al ${formatShortDate(it)}" }
+                    ).joinToString(" ")
+                    if (registration.isNotBlank()) ExamDetailField("Iscrizioni", registration)
+                    RegistrationBadge(appeal)
+                }
+            }
+        }
+        item {
+            OutlinedButton(
+                onClick = { onAddToCalendar(appeal) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Outlined.CalendarMonth, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Aggiungi al calendario")
+            }
+            OutlinedButton(
+                onClick = { onRemove(appeal) },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) {
+                Icon(Icons.Outlined.Bookmark, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Rimuovi dai miei appelli")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExamDetailField(label: String, value: String) {
+    if (value.isBlank()) return
+    Column {
+        Text(label.uppercase(examLocale), style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        Text(value, Modifier.padding(top = 2.dp), style = MaterialTheme.typography.bodyLarge)
     }
 }
 

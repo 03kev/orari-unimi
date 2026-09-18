@@ -109,6 +109,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     var examError by remember { mutableStateOf<String?>(null) }
     var examRefreshing by remember { mutableStateOf(false) }
     var examOpenedFromCourseDetail by remember { mutableStateOf(false) }
+    var examPlannerOpen by remember { mutableStateOf(false) }
+    var examPlannerAppeal by remember { mutableStateOf<ExamAppeal?>(null) }
     var examLoadId by remember { mutableIntStateOf(0) }
     var examQuery by remember { mutableStateOf("") }
     var years by remember { mutableStateOf<List<AcademicYear>>(emptyList()) }
@@ -183,6 +185,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
             examCourse = null
             examData = null
             examError = null
+            examPlannerOpen = false
+            examPlannerAppeal = null
             examLoadId++
             examRefreshing = false
             tab = 1
@@ -199,6 +203,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
             examCourse = null
             examData = null
             examError = null
+            examPlannerOpen = false
+            examPlannerAppeal = null
             examLoadId++
             examRefreshing = false
             notificationEntries = store.notifications()
@@ -330,6 +336,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     }
 
     fun openSettings() {
+        examPlannerOpen = false
+        examPlannerAppeal = null
         notificationsOpen = false
         notificationSettingsOpen = false
         settings = true
@@ -338,6 +346,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     }
 
     fun openNotifications() {
+        examPlannerOpen = false
+        examPlannerAppeal = null
         settings = false
         notificationSettingsOpen = false
         notificationEntries = store.notifications()
@@ -348,6 +358,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     }
 
     fun openNotificationSettings() {
+        examPlannerOpen = false
+        examPlannerAppeal = null
         settings = false
         notificationsOpen = false
         notificationSettingsOpen = true
@@ -436,6 +448,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         notificationSettingsOpen = false
         agendaOpen = false
         calendar = null
+        examPlannerOpen = false
+        examPlannerAppeal = null
         examCourse = course
         examWindow = selectedWindow
         examError = null
@@ -506,6 +520,17 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         }
         runCatching { context.startActivity(intent) }
             .onFailure { scope.launch { snackbar.showSnackbar("Nessuna app calendario disponibile.") } }
+    }
+
+    fun openExamPlanner() {
+        settings = false
+        notificationsOpen = false
+        notificationSettingsOpen = false
+        agendaOpen = false
+        calendar = null
+        examPlannerAppeal = null
+        examPlannerOpen = true
+        error = null
     }
 
     fun moveWeek(amount: Long) {
@@ -639,6 +664,11 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         calendarRefreshing = false
         busy = false
         when {
+            examPlannerAppeal != null -> examPlannerAppeal = null
+            examPlannerOpen -> {
+                examPlannerOpen = false
+                examPlannerAppeal = null
+            }
             agendaOpen -> {
                 agendaOpen = false
                 if (agendaOpenedFromCourseDetail) calendar = null
@@ -664,7 +694,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         error = null
     }
 
-    BackHandler(enabled = calendar != null || courseDetail != null || examCourse != null || agendaOpen || settings ||
+    BackHandler(enabled = examPlannerOpen || calendar != null || courseDetail != null || examCourse != null || agendaOpen || settings ||
         notificationsOpen || notificationSettingsOpen) { goBack() }
 
     Scaffold(
@@ -672,6 +702,8 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
             TopAppBar(
                 title = {
                     when {
+                        examPlannerAppeal != null -> Text("Dettagli appello")
+                        examPlannerOpen -> Text("I miei appelli")
                         agendaOpen -> Text("Agenda")
                         examCourse != null -> Text("Appelli")
                         calendar != null -> Text(calendar!!.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -688,27 +720,27 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                     }
                 },
                 navigationIcon = {
-                    if (calendar != null || courseDetail != null || examCourse != null || agendaOpen || settings || notificationsOpen ||
+                    if (examPlannerOpen || calendar != null || courseDetail != null || examCourse != null || agendaOpen || settings || notificationsOpen ||
                         notificationSettingsOpen) IconButton(onClick = ::goBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Indietro")
                     }
                 },
                 actions = {
                     val shown = calendar
-                    if (shown != null && !agendaOpen) IconButton(onClick = {
+                    if (shown != null && !agendaOpen && !examPlannerOpen) IconButton(onClick = {
                         agendaOpenedFromCourseDetail = false
                         agendaOpen = true
                         error = null
                     }) {
                         Icon(Icons.Outlined.ViewAgenda, contentDescription = "Apri vista agenda")
                     }
-                    if (shown?.source?.kind == SearchKind.SUBJECT && !agendaOpen) {
+                    if (shown?.source?.kind == SearchKind.SUBJECT && !agendaOpen && !examPlannerOpen) {
                         val subject = SavedSubject(shown.year, shown.source.code, shown.source.name)
                         val isSaved = saved.any { it.year == subject.year && it.code == subject.code }
                         IconButton(onClick = { toggleSaved(subject) }) {
                             Icon(if (isSaved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
                             contentDescription = if (isSaved) "Rimuovi dai miei orari" else "Salva nei miei orari") }
-                    } else if (examCourse == null && !agendaOpen && (shown?.source?.kind == SearchKind.COURSE ||
+                    } else if (!examPlannerOpen && examCourse == null && !agendaOpen && (shown?.source?.kind == SearchKind.COURSE ||
                         calendar == null && courseDetail != null)) {
                         val detail = if (shown?.source?.kind == SearchKind.COURSE)
                             CourseDetailData(shown.year, shown.source) else courseDetail!!
@@ -720,7 +752,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                                 contentDescription = if (isFavorite) "Rimuovi corso dai preferiti"
                                     else "Salva corso nei preferiti")
                         }
-                    } else if (calendar == null && courseDetail == null && examCourse == null && !agendaOpen && !settings &&
+                    } else if (!examPlannerOpen && calendar == null && courseDetail == null && examCourse == null && !agendaOpen && !settings &&
                         !notificationsOpen && !notificationSettingsOpen) {
                         IconButton(onClick = ::openNotifications) {
                             BadgedBox(badge = {
@@ -738,7 +770,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
             )
         },
         bottomBar = {
-            if (calendar == null && courseDetail == null && examCourse == null && !agendaOpen && !settings && !notificationsOpen &&
+            if (!examPlannerOpen && calendar == null && courseDetail == null && examCourse == null && !agendaOpen && !settings && !notificationsOpen &&
                 !notificationSettingsOpen) NavigationBar {
                 NavigationBarItem(
                     selected = tab == 0, onClick = { tab = 0; error = null },
@@ -849,6 +881,16 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                             } else showCalendar("I miei orari", year?.code.orEmpty(), null, saved, day)
                         }
                     )
+                    examPlannerOpen -> ExamPlannerScreen(
+                        savedAppeals = savedExamAppeals,
+                        selectedAppeal = examPlannerAppeal,
+                        onSelectAppeal = { examPlannerAppeal = it },
+                        onRemoveAppeal = { appeal ->
+                            toggleSavedExamAppeal(appeal)
+                            examPlannerAppeal = null
+                        },
+                        onAddToCalendar = ::addExamToCalendar
+                    )
                     examCourse != null -> {
                         val selected = examCourse!!
                         val shown = examData?.takeIf {
@@ -873,6 +915,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                             onWindow = { showExams(selected, it, examOpenedFromCourseDetail) },
                             onRefresh = { showExams(selected, examWindow, examOpenedFromCourseDetail) },
                             onRetryCourses = { entries = entries - SearchKind.COURSE; entriesRetry++ },
+                            onOpenPlanner = ::openExamPlanner,
                             onToggleSavedAppeal = ::toggleSavedExamAppeal,
                             onAddToCalendar = ::addExamToCalendar
                         )
@@ -964,6 +1007,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                         onWindow = {},
                         onRefresh = {},
                         onRetryCourses = { entries = entries - SearchKind.COURSE; entriesRetry++ },
+                        onOpenPlanner = ::openExamPlanner,
                         onToggleSavedAppeal = ::toggleSavedExamAppeal,
                         onAddToCalendar = ::addExamToCalendar
                     )
