@@ -55,6 +55,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -153,7 +154,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
             store.notificationPreferences = notificationPreferences
             NotificationScheduler.configure(context, runNow = true)
         } else {
-            scope.launch { snackbar.showSnackbar("Per ricevere gli avvisi devi consentire le notifiche nelle impostazioni Android.") }
+            scope.launch { snackbar.showAppSnackbar("Per ricevere gli avvisi devi consentire le notifiche nelle impostazioni Android.") }
         }
     }
     val unknownSourcesLauncher = rememberLauncherForActivityResult(
@@ -163,7 +164,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         if (apk != null && AppUpdater.canInstall(context)) {
             runCatching { AppUpdater.install(context, apk) }
                 .onFailure { failure ->
-                    scope.launch { snackbar.showSnackbar(failure.message ?: "Impossibile aprire l'installazione.") }
+                    scope.launch { snackbar.showAppSnackbar(failure.message ?: "Impossibile aprire l'installazione.") }
                 }
             pendingInstall = null
         }
@@ -356,14 +357,14 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
         if (AppUpdater.canInstall(context)) {
             runCatching { AppUpdater.install(context, file) }
                 .onFailure { failure ->
-                    scope.launch { snackbar.showSnackbar(failure.message ?: "Impossibile aprire l'installazione.") }
+                    scope.launch { snackbar.showAppSnackbar(failure.message ?: "Impossibile aprire l'installazione.") }
                 }
         } else {
             pendingInstall = file
             runCatching { unknownSourcesLauncher.launch(AppUpdater.unknownSourcesIntent(context)) }
                 .onFailure { failure ->
                     pendingInstall = null
-                    scope.launch { snackbar.showSnackbar(failure.message ?: "Impossibile aprire il permesso di installazione.") }
+                    scope.launch { snackbar.showAppSnackbar(failure.message ?: "Impossibile aprire il permesso di installazione.") }
                 }
         }
     }
@@ -414,7 +415,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
             store.markNotificationsRead()
             notificationEntries = store.notifications()
             notificationRefreshing = false
-            snackbar.showSnackbar(when (completed) {
+            snackbar.showAppSnackbar(when (completed) {
                 true -> "Controllo notifiche completato"
                 false -> "Il controllo continuerà in background"
                 null -> "Attiva almeno un tipo di notifica nelle preferenze"
@@ -448,17 +449,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
     }
 
     fun showBriefSnackbar(message: String) {
-        scope.launch {
-            snackbar.currentSnackbarData?.dismiss()
-            val dismissJob = launch {
-                delay(1_800)
-                if (snackbar.currentSnackbarData?.visuals?.message == message) {
-                    snackbar.currentSnackbarData?.dismiss()
-                }
-            }
-            snackbar.showSnackbar(message, duration = SnackbarDuration.Indefinite)
-            dismissJob.cancel()
-        }
+        scope.launch { snackbar.showAppSnackbar(message) }
     }
 
     fun toggleSaved(subject: SavedSubject) {
@@ -564,7 +555,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                 .putExtra(CalendarContract.Events.ALL_DAY, true)
         }
         runCatching { context.startActivity(intent) }
-            .onFailure { scope.launch { snackbar.showSnackbar("Nessuna app calendario disponibile.") } }
+            .onFailure { scope.launch { snackbar.showAppSnackbar("Nessuna app calendario disponibile.") } }
     }
 
     fun openExamPlanner() {
@@ -885,7 +876,7 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
                             store.deleteNotification(entry.id)
                             notificationEntries = store.notifications()
                             scope.launch {
-                                val result = snackbar.showSnackbar(
+                                val result = snackbar.showAppSnackbar(
                                     message = "Notifica eliminata",
                                     actionLabel = "Annulla",
                                     withDismissAction = true
@@ -1110,6 +1101,30 @@ fun OrariApp(initialTab: Int = 0, openSavedRequest: Int = 0, openNotificationsRe
             }
             if (busy) CircularProgressIndicator(Modifier.align(androidx.compose.ui.Alignment.Center))
         }
+    }
+}
+
+private const val APP_SNACKBAR_DURATION_MILLIS = 1_800L
+
+private suspend fun SnackbarHostState.showAppSnackbar(
+    message: String,
+    actionLabel: String? = null,
+    withDismissAction: Boolean = false
+): SnackbarResult = coroutineScope {
+    currentSnackbarData?.dismiss()
+    val dismissJob = launch {
+        delay(APP_SNACKBAR_DURATION_MILLIS)
+        if (currentSnackbarData?.visuals?.message == message) currentSnackbarData?.dismiss()
+    }
+    try {
+        showSnackbar(
+            message = message,
+            actionLabel = actionLabel,
+            withDismissAction = withDismissAction,
+            duration = SnackbarDuration.Indefinite
+        )
+    } finally {
+        dismissJob.cancel()
     }
 }
 

@@ -27,12 +27,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -56,6 +59,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -69,15 +73,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -721,6 +729,11 @@ private fun RowScope.ExamPlannerDay(
     count: Int,
     onSelect: (LocalDate) -> Unit
 ) {
+    val indicatorGap by animateDpAsState(
+        targetValue = if (selected || today) 5.dp else 0.dp,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "exam-day-indicator-gap"
+    )
     Box(
         modifier = Modifier.weight(1f).height(56.dp).clickable { onSelect(day) },
         contentAlignment = Alignment.Center
@@ -747,16 +760,18 @@ private fun RowScope.ExamPlannerDay(
                         })
                 }
             }
-            Spacer(Modifier.height(5.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                repeat(count.coerceAtMost(3)) {
-                    Box(Modifier.size(4.dp).background(
-                        when {
-                            selected -> MaterialTheme.colorScheme.onPrimary
-                            !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                            else -> MaterialTheme.colorScheme.primary
-                        },
-                        CircleShape))
+            if (count > 0) {
+                Spacer(Modifier.height(indicatorGap))
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    repeat(count.coerceAtMost(3)) {
+                        Box(Modifier.size(4.dp).background(
+                            when {
+                                selected -> MaterialTheme.colorScheme.onPrimary
+                                !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                                else -> MaterialTheme.colorScheme.primary
+                            },
+                            CircleShape))
+                    }
                 }
             }
         }
@@ -784,13 +799,23 @@ private fun ExamPlannerAppeal(appeal: ExamAppeal, hasNote: Boolean, onClick: () 
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (hasNote) {
-                Icon(Icons.Outlined.Description, contentDescription = "Nota personale",
-                    modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                if (hasNote) Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Description, contentDescription = "Nota personale",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = "Apri dettagli",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = "Apri dettagli",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -805,8 +830,10 @@ fun ExamAppealDetailsScreen(
     onAddToCalendar: (ExamAppeal) -> Unit
 ) {
     var note by remember(appeal.courseCode, appeal.id, savedNote) { mutableStateOf(savedNote) }
+    val noteActionsRequester = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().imePadding(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 30.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -845,7 +872,7 @@ fun ExamAppealDetailsScreen(
             }
         }
         item {
-            OutlinedButton(
+            FilledTonalButton(
                 onClick = { onAddToCalendar(appeal) },
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -853,30 +880,43 @@ fun ExamAppealDetailsScreen(
                 Spacer(Modifier.width(8.dp))
                 Text("Aggiungi al calendario")
             }
-            OutlinedButton(
-                onClick = { onToggleSaved(appeal) },
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor =
-                    if (saved) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-            ) {
-                Icon(if (saved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-                    contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(if (saved) "Rimuovi dai miei appelli" else "Salva nei miei appelli")
-            }
+            if (saved) OutlinedButton(
+                    onClick = { onToggleSaved(appeal) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Icon(Icons.Outlined.Bookmark, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Rimuovi dai miei appelli")
+                }
+            else FilledTonalButton(
+                    onClick = { onToggleSaved(appeal) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                ) {
+                    Icon(Icons.Outlined.BookmarkBorder, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Salva nei miei appelli")
+                }
         }
         if (saved) item {
             OutlinedTextField(
                 value = note,
                 onValueChange = { note = it.take(500) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().onFocusChanged { focusState ->
+                    if (focusState.isFocused) scope.launch {
+                        delay(300)
+                        noteActionsRequester.bringIntoView()
+                    }
+                },
                 minLines = 3,
                 maxLines = 6,
                 shape = RoundedCornerShape(18.dp),
                 label = { Text("Note personali") },
                 supportingText = { Text("${note.length}/500 · salvate solo su questo dispositivo") }
             )
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp),
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp)
+                .bringIntoViewRequester(noteActionsRequester),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (savedNote.isNotBlank()) OutlinedButton(
                     onClick = {
@@ -893,7 +933,7 @@ fun ExamAppealDetailsScreen(
                     Spacer(Modifier.width(6.dp))
                     Text("Elimina")
                 }
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = { onSaveNote(appeal, note) },
                     enabled = note.isNotBlank() && note.trim() != savedNote,
                     modifier = Modifier.weight(1f)
