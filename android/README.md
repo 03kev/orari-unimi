@@ -20,7 +20,10 @@ raggruppa per data. Si possono vedere gli appelli di oggi, dei prossimi 30 giorn
 o tutti quelli programmati, controllare aula, docente, tipo di prova e periodo
 di iscrizione e aggiungere un appello al calendario Android. I corsi preferiti
 sono disponibili come accesso rapido e la stessa sezione si apre direttamente
-dalla pagina di un corso. Origine dei dati, cache e limiti sono descritti in
+dalla pagina di un corso. “I miei appelli” combina un calendario mensile con una
+lista cronologica dei promemoria salvati; ogni appello può avere una nota locale,
+visibile e rimovibile dal relativo pannello di dettaglio. Origine dei dati,
+cache e limiti sono descritti in
 [docs/EXAMS.md](docs/EXAMS.md).
 Nelle Preferenze l'app controlla le release pubblicate su GitHub e, quando è
 disponibile una versione più recente, può scaricare e verificare l'APK prima di

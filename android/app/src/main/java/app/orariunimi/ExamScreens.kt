@@ -44,6 +44,8 @@ import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.PersonOutline
@@ -100,12 +102,14 @@ fun ExamsScreen(
     loadingCourses: Boolean,
     refreshing: Boolean,
     savedAppeals: List<ExamAppeal>,
+    appealsWithNotes: Set<Pair<String, String>>,
     onQuery: (String) -> Unit,
     onSelectCourse: (SearchItem) -> Unit,
     onWindow: (ExamWindow) -> Unit,
     onRefresh: () -> Unit,
     onRetryCourses: () -> Unit,
     onOpenPlanner: () -> Unit,
+    onOpenAppeal: (ExamAppeal) -> Unit,
     onToggleSavedAppeal: (ExamAppeal) -> Unit,
     onAddToCalendar: (ExamAppeal) -> Unit
 ) {
@@ -114,8 +118,8 @@ fun ExamsScreen(
             onSelectCourse, onRetryCourses, onOpenPlanner)
     } else {
         ExamAppealsList(selectedCourse, window, appeals, updatedAtMillis, offline, errorMessage, refreshing,
-            savedAppeals, onWindow, onRefresh, onOpenPlanner,
-            onToggleSavedAppeal, onAddToCalendar)
+            savedAppeals, appealsWithNotes, onWindow, onRefresh, onOpenPlanner,
+            onOpenAppeal, onToggleSavedAppeal, onAddToCalendar)
     }
 }
 
@@ -127,7 +131,7 @@ private fun ExamCoursePicker(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 30.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 30.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
@@ -138,8 +142,11 @@ private fun ExamCoursePicker(
                         Modifier.padding(top = 5.dp), style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = onOpenPlanner) {
-                    Icon(Icons.Outlined.CalendarMonth, contentDescription = "Apri i miei appelli")
+                Surface(shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    IconButton(onClick = onOpenPlanner, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Outlined.CalendarMonth, contentDescription = "Apri i miei appelli")
+                    }
                 }
             }
             Spacer(Modifier.height(18.dp))
@@ -239,7 +246,9 @@ private fun ExamCourseCard(course: SearchItem, favorite: Boolean, onClick: () ->
 private fun ExamAppealsList(
     course: SearchItem, window: ExamWindow, appeals: List<ExamAppeal>?, updatedAtMillis: Long?,
     offline: Boolean, errorMessage: String?, refreshing: Boolean, savedAppeals: List<ExamAppeal>,
+    appealsWithNotes: Set<Pair<String, String>>,
     onWindow: (ExamWindow) -> Unit, onRefresh: () -> Unit, onOpenPlanner: () -> Unit,
+    onOpenAppeal: (ExamAppeal) -> Unit,
     onToggleSavedAppeal: (ExamAppeal) -> Unit,
     onAddToCalendar: (ExamAppeal) -> Unit
 ) {
@@ -267,8 +276,11 @@ private fun ExamAppealsList(
                     Text(course.code, style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = onOpenPlanner) {
-                    Icon(Icons.Outlined.CalendarMonth, contentDescription = "Apri i miei appelli")
+                Surface(shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    IconButton(onClick = onOpenPlanner, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Outlined.CalendarMonth, contentDescription = "Apri i miei appelli")
+                    }
                 }
             }
             ExamWindowSelector(window, onWindow, Modifier.padding(top = 14.dp))
@@ -346,6 +358,8 @@ private fun ExamAppealsList(
                     ExamAppealCard(
                         appeal,
                         saved = savedAppeals.any { it.id == appeal.id && it.courseCode == appeal.courseCode },
+                        hasNote = (appeal.courseCode to appeal.id) in appealsWithNotes,
+                        onOpen = { onOpenAppeal(appeal) },
                         onToggleSaved = { onToggleSavedAppeal(appeal) },
                         onAddToCalendar = onAddToCalendar
                     )
@@ -473,20 +487,15 @@ private fun ExamFreshness(
 @Composable
 fun ExamPlannerScreen(
     savedAppeals: List<ExamAppeal>,
-    selectedAppeal: ExamAppeal?,
-    savedNote: String,
-    onSelectAppeal: (ExamAppeal) -> Unit,
-    onSaveNote: (ExamAppeal, String) -> Unit,
-    onRemoveAppeal: (ExamAppeal) -> Unit,
-    onAddToCalendar: (ExamAppeal) -> Unit
+    appealsWithNotes: Set<Pair<String, String>>,
+    showSaved: Boolean,
+    onShowSaved: (Boolean) -> Unit,
+    onSelectAppeal: (ExamAppeal) -> Unit
 ) {
-    if (selectedAppeal != null) {
-        ExamAppealDetails(selectedAppeal, savedNote, onSaveNote, onRemoveAppeal, onAddToCalendar)
-        return
-    }
     val today = LocalDate.now()
     var month by remember { mutableStateOf(YearMonth.from(today)) }
     var selectedDay by remember { mutableStateOf(today) }
+    val mode = if (showSaved) ExamPlannerMode.SAVED else ExamPlannerMode.CALENDAR
     var drag by remember(month) { mutableFloatStateOf(0f) }
     val appealsByDay = remember(savedAppeals) {
         savedAppeals.groupBy { it.date }.mapValues { (_, items) ->
@@ -494,6 +503,7 @@ fun ExamPlannerScreen(
         }
     }
     val selectedAppeals = appealsByDay[selectedDay].orEmpty()
+    val savedGroups = remember(savedAppeals) { savedAppeals.groupBy { it.date } }
     val monthTitle = remember(month) {
         month.format(DateTimeFormatter.ofPattern("MMMM yyyy", examLocale))
             .replaceFirstChar { it.titlecase(examLocale) }
@@ -514,25 +524,29 @@ fun ExamPlannerScreen(
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(monthTitle, style = MaterialTheme.typography.headlineSmall,
+                    Text(if (mode == ExamPlannerMode.CALENDAR) monthTitle else "Appelli salvati",
+                        style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold)
                     Text("${savedAppeals.size} ${if (savedAppeals.size == 1) "appello salvato" else "appelli salvati"}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                TextButton(onClick = {
-                    month = YearMonth.from(today)
-                    selectedDay = today
-                }) { Text("Oggi") }
-                IconButton(onClick = { moveMonth(-1) }) {
-                    Icon(Icons.Outlined.ChevronLeft, contentDescription = "Mese precedente")
-                }
-                IconButton(onClick = { moveMonth(1) }) {
-                    Icon(Icons.Outlined.ChevronRight, contentDescription = "Mese successivo")
+                if (mode == ExamPlannerMode.CALENDAR) {
+                    TextButton(onClick = {
+                        month = YearMonth.from(today)
+                        selectedDay = today
+                    }) { Text("Oggi") }
+                    IconButton(onClick = { moveMonth(-1) }) {
+                        Icon(Icons.Outlined.ChevronLeft, contentDescription = "Mese precedente")
+                    }
+                    IconButton(onClick = { moveMonth(1) }) {
+                        Icon(Icons.Outlined.ChevronRight, contentDescription = "Mese successivo")
+                    }
                 }
             }
         }
-        item {
+        item { ExamPlannerModeSelector(mode, onMode = { onShowSaved(it == ExamPlannerMode.SAVED) }) }
+        if (mode == ExamPlannerMode.CALENDAR) item {
             Surface(
                 modifier = Modifier.fillMaxWidth().pointerInput(month) {
                 detectHorizontalDragGestures(
@@ -559,12 +573,11 @@ fun ExamPlannerScreen(
                     ) {
                         Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
                             listOf("LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM")
-                                .forEachIndexed { index, label ->
+                                .forEach { label ->
                                 Box(Modifier.weight(1f).height(30.dp), contentAlignment = Alignment.Center) {
                                     Text(label, style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (index >= 5) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.onSurfaceVariant)
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -606,7 +619,7 @@ fun ExamPlannerScreen(
                 }
             }
         }
-        item {
+        if (mode == ExamPlannerMode.CALENDAR) item {
             Column {
                 Text(formatExamDate(selectedDay), style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold)
@@ -616,14 +629,85 @@ fun ExamPlannerScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        if (selectedAppeals.isEmpty()) item {
+        if (mode == ExamPlannerMode.CALENDAR && selectedAppeals.isEmpty()) item {
             ExamEmptyPanel(
                 if (savedAppeals.isEmpty()) "Nessun appello salvato" else "Giornata libera",
                 if (savedAppeals.isEmpty()) "Salva un appello con il segnalibro per ritrovarlo nel calendario."
                 else "Non hai appelli salvati per questa data."
             )
-        } else items(selectedAppeals, key = { "planner:${it.courseCode}:${it.id}" }) { appeal ->
-            ExamPlannerAppeal(appeal, onClick = { onSelectAppeal(appeal) })
+        } else if (mode == ExamPlannerMode.CALENDAR) items(
+            selectedAppeals,
+            key = { "planner:${it.courseCode}:${it.id}" }
+        ) { appeal ->
+            ExamPlannerAppeal(
+                appeal,
+                hasNote = (appeal.courseCode to appeal.id) in appealsWithNotes,
+                onClick = { onSelectAppeal(appeal) }
+            )
+        }
+        if (mode == ExamPlannerMode.SAVED && savedAppeals.isEmpty()) item {
+            ExamEmptyPanel(
+                "Nessun appello salvato",
+                "Salva un appello con il segnalibro per ritrovarlo qui e nel calendario."
+            )
+        } else if (mode == ExamPlannerMode.SAVED) savedGroups.forEach { (date, appeals) ->
+            item(key = "saved-date:$date") {
+                Text(formatExamDate(date), Modifier.padding(top = 5.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold)
+            }
+            items(appeals, key = { "saved:${it.courseCode}:${it.id}" }) { appeal ->
+                ExamPlannerAppeal(
+                    appeal,
+                    hasNote = (appeal.courseCode to appeal.id) in appealsWithNotes,
+                    onClick = { onSelectAppeal(appeal) }
+                )
+            }
+        }
+    }
+}
+
+private enum class ExamPlannerMode(val label: String) {
+    CALENDAR("Calendario"),
+    SAVED("Salvati")
+}
+
+@Composable
+private fun ExamPlannerModeSelector(mode: ExamPlannerMode, onMode: (ExamPlannerMode) -> Unit) {
+    val options = ExamPlannerMode.entries
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        BoxWithConstraints(Modifier.padding(4.dp)) {
+            val segmentWidth = maxWidth / options.size
+            val selectedIndex = options.indexOf(mode).coerceAtLeast(0)
+            val indicatorOffset by animateDpAsState(
+                targetValue = segmentWidth * selectedIndex,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                ),
+                label = "exam-planner-mode-indicator"
+            )
+            Box(
+                Modifier.offset { IntOffset(indicatorOffset.roundToPx(), 0) }
+                    .width(segmentWidth)
+                    .height(42.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp))
+            )
+            Row(Modifier.fillMaxWidth()) {
+                options.forEach { option ->
+                    ExamWindowOption(
+                        label = option.label,
+                        selected = option == mode,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onMode(option) }
+                    )
+                }
+            }
         }
     }
 }
@@ -663,6 +747,7 @@ private fun RowScope.ExamPlannerDay(
                         })
                 }
             }
+            Spacer(Modifier.height(5.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 repeat(count.coerceAtMost(3)) {
                     Box(Modifier.size(4.dp).background(
@@ -679,7 +764,7 @@ private fun RowScope.ExamPlannerDay(
 }
 
 @Composable
-private fun ExamPlannerAppeal(appeal: ExamAppeal, onClick: () -> Unit) {
+private fun ExamPlannerAppeal(appeal: ExamAppeal, hasNote: Boolean, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         shape = RoundedCornerShape(18.dp),
@@ -699,6 +784,11 @@ private fun ExamPlannerAppeal(appeal: ExamAppeal, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            if (hasNote) {
+                Icon(Icons.Outlined.Description, contentDescription = "Nota personale",
+                    modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+            }
             Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = "Apri dettagli",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -706,14 +796,15 @@ private fun ExamPlannerAppeal(appeal: ExamAppeal, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ExamAppealDetails(
+fun ExamAppealDetailsScreen(
     appeal: ExamAppeal,
+    saved: Boolean,
     savedNote: String,
     onSaveNote: (ExamAppeal, String) -> Unit,
-    onRemove: (ExamAppeal) -> Unit,
+    onToggleSaved: (ExamAppeal) -> Unit,
     onAddToCalendar: (ExamAppeal) -> Unit
 ) {
-    var note by remember(appeal.courseCode, appeal.id) { mutableStateOf(savedNote) }
+    var note by remember(appeal.courseCode, appeal.id, savedNote) { mutableStateOf(savedNote) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 30.dp),
@@ -725,25 +816,6 @@ private fun ExamAppealDetails(
             Text(listOf(appeal.subjectCode, appeal.subjectPortalCode).filter { it.isNotBlank() }.joinToString(" · "),
                 Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        item {
-            OutlinedTextField(
-                value = note,
-                onValueChange = { note = it.take(500) },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 3,
-                maxLines = 6,
-                shape = RoundedCornerShape(18.dp),
-                label = { Text("Note personali") },
-                supportingText = { Text("${note.length}/500 · salvate solo su questo dispositivo") }
-            )
-            OutlinedButton(
-                onClick = { onSaveNote(appeal, note) },
-                enabled = note.trim() != savedNote,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-            ) {
-                Text(if (note.isBlank()) "Rimuovi nota" else "Salva nota")
-            }
         }
         item {
             Surface(
@@ -782,14 +854,57 @@ private fun ExamAppealDetails(
                 Text("Aggiungi al calendario")
             }
             OutlinedButton(
-                onClick = { onRemove(appeal) },
+                onClick = { onToggleSaved(appeal) },
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                colors = ButtonDefaults.outlinedButtonColors(contentColor =
+                    if (saved) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
             ) {
-                Icon(Icons.Outlined.Bookmark, contentDescription = null)
+                Icon(if (saved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                    contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Rimuovi dai miei appelli")
+                Text(if (saved) "Rimuovi dai miei appelli" else "Salva nei miei appelli")
             }
+        }
+        if (saved) item {
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it.take(500) },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3,
+                maxLines = 6,
+                shape = RoundedCornerShape(18.dp),
+                label = { Text("Note personali") },
+                supportingText = { Text("${note.length}/500 · salvate solo su questo dispositivo") }
+            )
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (savedNote.isNotBlank()) OutlinedButton(
+                    onClick = {
+                        note = ""
+                        onSaveNote(appeal, "")
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Icon(Icons.Outlined.DeleteOutline, contentDescription = null,
+                        modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Elimina")
+                }
+                OutlinedButton(
+                    onClick = { onSaveNote(appeal, note) },
+                    enabled = note.isNotBlank() && note.trim() != savedNote,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Salva nota")
+                }
+            }
+        } else item {
+            Text("Salva l’appello per aggiungere una nota personale.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -814,10 +929,10 @@ private fun ExamDetailField(label: String, value: String) {
 
 @Composable
 private fun ExamAppealCard(
-    appeal: ExamAppeal, saved: Boolean, onToggleSaved: () -> Unit,
+    appeal: ExamAppeal, saved: Boolean, hasNote: Boolean, onOpen: () -> Unit, onToggleSaved: () -> Unit,
     onAddToCalendar: (ExamAppeal) -> Unit
 ) {
-    Card(shape = RoundedCornerShape(20.dp),
+    Card(onClick = onOpen, shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Row(verticalAlignment = Alignment.Top) {
@@ -852,6 +967,15 @@ private fun ExamAppealCard(
             if (range.isNotBlank()) Text("Cognomi $range", Modifier.padding(top = 7.dp),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (hasNote) {
+                Row(Modifier.padding(top = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Description, contentDescription = null,
+                        modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Nota personale", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary)
+                }
+            }
             RegistrationBadge(appeal)
         }
     }
