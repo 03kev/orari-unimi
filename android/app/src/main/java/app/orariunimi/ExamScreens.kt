@@ -24,10 +24,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -69,23 +71,24 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -729,49 +732,53 @@ private fun RowScope.ExamPlannerDay(
     count: Int,
     onSelect: (LocalDate) -> Unit
 ) {
-    val indicatorGap by animateDpAsState(
-        targetValue = if (selected || today) 5.dp else 0.dp,
+    val interactionSource = remember { MutableInteractionSource() }
+    val indicatorOffset by animateDpAsState(
+        targetValue = if (selected || today) 24.dp else 17.dp,
         animationSpec = tween(180, easing = FastOutSlowInEasing),
-        label = "exam-day-indicator-gap"
+        label = "exam-day-indicator-offset"
     )
     Box(
-        modifier = Modifier.weight(1f).height(56.dp).clickable { onSelect(day) },
+        modifier = Modifier.weight(1f).height(56.dp).clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = { onSelect(day) }
+        ),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center) {
-            Surface(
-                shape = CircleShape,
-                color = when {
-                    selected -> MaterialTheme.colorScheme.primary
-                    today -> MaterialTheme.colorScheme.primaryContainer
-                    else -> Color.Transparent
-                },
-                modifier = Modifier.size(34.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (selected || today) FontWeight.Bold else FontWeight.Normal,
-                        color = when {
-                            selected -> MaterialTheme.colorScheme.onPrimary
-                            !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
-                            today -> MaterialTheme.colorScheme.onPrimaryContainer
-                            else -> MaterialTheme.colorScheme.onSurface
-                        })
-                }
+        Surface(
+            shape = CircleShape,
+            color = when {
+                selected -> MaterialTheme.colorScheme.primary
+                today -> MaterialTheme.colorScheme.primaryContainer
+                else -> Color.Transparent
+            },
+            modifier = Modifier.size(34.dp).align(Alignment.Center)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(day.dayOfMonth.toString(), style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (selected || today) FontWeight.Bold else FontWeight.Normal,
+                    color = when {
+                        selected -> MaterialTheme.colorScheme.onPrimary
+                        !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+                        today -> MaterialTheme.colorScheme.onPrimaryContainer
+                        else -> MaterialTheme.colorScheme.onSurface
+                    })
             }
-            if (count > 0) {
-                Spacer(Modifier.height(indicatorGap))
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    repeat(count.coerceAtMost(3)) {
-                        Box(Modifier.size(4.dp).background(
-                            when {
-                                selected -> MaterialTheme.colorScheme.onPrimary
-                                !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                                else -> MaterialTheme.colorScheme.primary
-                            },
-                            CircleShape))
-                    }
+        }
+        if (count > 0) {
+            Row(
+                modifier = Modifier.align(Alignment.Center).offset(y = indicatorOffset),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                repeat(count.coerceAtMost(3)) {
+                    Box(Modifier.size(4.dp).background(
+                        when {
+                            selected -> MaterialTheme.colorScheme.onPrimary
+                            !inCurrentMonth -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                            else -> MaterialTheme.colorScheme.primary
+                        },
+                        CircleShape))
                 }
             }
         }
@@ -830,8 +837,16 @@ fun ExamAppealDetailsScreen(
     onAddToCalendar: (ExamAppeal) -> Unit
 ) {
     var note by remember(appeal.courseCode, appeal.id, savedNote) { mutableStateOf(savedNote) }
-    val noteActionsRequester = remember { BringIntoViewRequester() }
-    val scope = rememberCoroutineScope()
+    var noteFocused by remember(appeal.courseCode, appeal.id) { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val noteEditorRequester = remember { BringIntoViewRequester() }
+    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+    LaunchedEffect(noteFocused, imeBottom) {
+        if (noteFocused && imeBottom > 0) {
+            noteEditorRequester.bringIntoView()
+        }
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize().imePadding(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 30.dp),
@@ -900,45 +915,47 @@ fun ExamAppealDetailsScreen(
                 }
         }
         if (saved) item {
-            OutlinedTextField(
-                value = note,
-                onValueChange = { note = it.take(500) },
-                modifier = Modifier.fillMaxWidth().onFocusChanged { focusState ->
-                    if (focusState.isFocused) scope.launch {
-                        delay(300)
-                        noteActionsRequester.bringIntoView()
+            Column(Modifier.fillMaxWidth().bringIntoViewRequester(noteEditorRequester)) {
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it.take(500) },
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { noteFocused = it.isFocused },
+                    minLines = 3,
+                    maxLines = 6,
+                    shape = RoundedCornerShape(18.dp),
+                    label = { Text("Note personali") },
+                    supportingText = { Text("${note.length}/500 · salvate solo su questo dispositivo") }
+                )
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (savedNote.isNotBlank()) OutlinedButton(
+                        onClick = {
+                            keyboardController?.hide()
+                            focusManager.clearFocus()
+                            note = ""
+                            onSaveNote(appeal, "")
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Icon(Icons.Outlined.DeleteOutline, contentDescription = null,
+                            modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Elimina")
                     }
-                },
-                minLines = 3,
-                maxLines = 6,
-                shape = RoundedCornerShape(18.dp),
-                label = { Text("Note personali") },
-                supportingText = { Text("${note.length}/500 · salvate solo su questo dispositivo") }
-            )
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp)
-                .bringIntoViewRequester(noteActionsRequester),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (savedNote.isNotBlank()) OutlinedButton(
-                    onClick = {
-                        note = ""
-                        onSaveNote(appeal, "")
-                    },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Icon(Icons.Outlined.DeleteOutline, contentDescription = null,
-                        modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Elimina")
-                }
-                FilledTonalButton(
-                    onClick = { onSaveNote(appeal, note) },
-                    enabled = note.isNotBlank() && note.trim() != savedNote,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Salva nota")
+                    FilledTonalButton(
+                        onClick = {
+                            keyboardController?.hide()
+                            focusManager.clearFocus()
+                            onSaveNote(appeal, note)
+                        },
+                        enabled = note.isNotBlank() && note.trim() != savedNote,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Salva nota")
+                    }
                 }
             }
         } else item {
